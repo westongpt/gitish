@@ -27,10 +27,10 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         _ => {
             let hint = match app.focus {
                 crate::app::Focus::FileList => {
-                    "Tab: focus diff  s: stage file  u: unstage file  c: commit  t: theme  q: quit"
+                    "s: stage  u: unstage  c: commit  P: push  L: pull  Tab: diff  t: theme  q: quit"
                 }
                 crate::app::Focus::DiffView => {
-                    "Tab: focus files  j/k: nav hunks  s: stage hunk  u: unstage  d: discard  c: commit"
+                    "j/k: nav  s: stage hunk  u: unstage  d: discard  P: push  L: pull  Tab: files"
                 }
             };
             (" Commit ", "", hint, theme.base03)

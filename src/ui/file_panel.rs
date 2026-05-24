@@ -9,10 +9,16 @@ use ratatui::{
 use crate::app::{App, Focus};
 use crate::git::repo::FileStatus;
 
-const ICON_NEW: &str = "󰈔";
-const ICON_MODIFIED: &str = "󰏫";
-const ICON_DELETED: &str = "󰆴";
-const ICON_STAGED: &str = "";
+// File-type glyphs (nf-md / Material Design Icons)
+const ICON_UNTRACKED: &str = "\u{F128}";  // nf-fa-question_circle  — unknown to git
+const ICON_NEW: &str       = "\u{F0214}"; // nf-md-file_plus        — newly staged file
+const ICON_MODIFIED: &str  = "\u{F03EB}"; // nf-md-pencil           — changed file
+const ICON_DELETED: &str   = "\u{F01B4}"; // nf-md-delete           — removed file
+
+// Staging-state glyphs (nf-fa / Font Awesome circle family)
+const ICON_STAGED: &str   = "\u{F058}"; // nf-fa-check_circle   — fully in index
+const ICON_PARTIAL: &str  = "\u{F192}"; // nf-fa-dot_circle_o   — partially staged
+const ICON_UNSTAGED: &str = "\u{F10C}"; // nf-fa-circle_o       — not staged
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let theme = app.current_theme();
@@ -28,27 +34,22 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         .files
         .iter()
         .map(|file| {
-            let icon = match file.status {
-                FileStatus::New => ICON_NEW,
-                FileStatus::Modified => ICON_MODIFIED,
-                FileStatus::Deleted => ICON_DELETED,
+            let (stage_icon, stage_color) = match (file.staged, file.unstaged) {
+                (true, false) => (ICON_STAGED,   theme.base0e), // fully staged   — mauve
+                (true, true)  => (ICON_PARTIAL,  theme.base0a), // partially staged — yellow
+                _             => (ICON_UNSTAGED, theme.base03), // not staged      — dim
             };
-            let staged_icon = if file.staged { ICON_STAGED } else { " " };
-            let icon_color = match file.status {
-                FileStatus::New => theme.base0b,
-                FileStatus::Modified => theme.base0d,
-                FileStatus::Deleted => theme.base08,
-            };
-            // partial staging: staged + still has unstaged changes → yellow hint
-            let staged_color = match (file.staged, file.unstaged) {
-                (true, true) => theme.base0a,
-                (true, false) => theme.base0e,
-                _ => theme.base03,
+
+            let (type_icon, type_color) = match file.status {
+                FileStatus::Untracked => (ICON_UNTRACKED, theme.base03),
+                FileStatus::New       => (ICON_NEW,        theme.base0b),
+                FileStatus::Modified  => (ICON_MODIFIED,   theme.base0d),
+                FileStatus::Deleted   => (ICON_DELETED,    theme.base08),
             };
 
             let line = Line::from(vec![
-                Span::styled(format!("{staged_icon} "), Style::default().fg(staged_color)),
-                Span::styled(format!("{icon} "), Style::default().fg(icon_color)),
+                Span::styled(format!("{stage_icon} "), Style::default().fg(stage_color)),
+                Span::styled(format!("{type_icon} "), Style::default().fg(type_color)),
                 Span::styled(&file.path, Style::default().fg(theme.base05)),
             ]);
             ListItem::new(line)

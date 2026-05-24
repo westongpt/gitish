@@ -4,7 +4,7 @@ use crate::config::Preferences;
 use crate::error::AppError;
 use crate::events::{next_event, AppEvent};
 use crate::git::repo::{diff_for_file, list_changed_files, staged_diff_for_file, ChangedFile, Hunk};
-use crate::git::{commit::create_commit, stage};
+use crate::git::{commit::create_commit, remote, stage};
 use crate::theme::{all_themes, load_theme_by_name, seed_themes, NamedTheme};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -246,6 +246,31 @@ impl App {
         Ok(())
     }
 
+    // ── remote ────────────────────────────────────────────────────────────
+
+    pub fn do_push(&mut self) -> Result<(), AppError> {
+        self.status_msg = Some("Pushing…".into());
+        let result = remote::push(&self.repo)?;
+        self.status_msg = Some(if result.success {
+            format!("Push: {}", result.output)
+        } else {
+            format!("Push failed: {}", result.output)
+        });
+        Ok(())
+    }
+
+    pub fn do_pull(&mut self) -> Result<(), AppError> {
+        self.status_msg = Some("Pulling…".into());
+        let result = remote::pull(&self.repo)?;
+        if result.success {
+            self.status_msg = Some(format!("Pull: {}", result.output));
+            self.refresh()?;
+        } else {
+            self.status_msg = Some(format!("Pull failed: {}", result.output));
+        }
+        Ok(())
+    }
+
     // ── theme picker ──────────────────────────────────────────────────────
 
     pub fn picker_up(&mut self) {
@@ -351,6 +376,8 @@ impl App {
             AppEvent::Stage => self.stage_current()?,
             AppEvent::Unstage => self.unstage_current()?,
             AppEvent::Discard => self.discard_current()?,
+            AppEvent::Push => self.do_push()?,
+            AppEvent::Pull => self.do_pull()?,
             AppEvent::Commit => self.mode = Mode::CommitTitle,
             AppEvent::OpenThemePicker => {
                 self.theme_picker_cursor = self.theme_idx;

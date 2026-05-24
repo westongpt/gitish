@@ -6,7 +6,8 @@ use crate::error::AppError;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FileStatus {
-    New,
+    Untracked, // WT_NEW only — git has never seen this file
+    New,       // INDEX_NEW  — staged for the first time
     Modified,
     Deleted,
 }
@@ -76,7 +77,11 @@ pub fn list_changed_files(repo: &Repository) -> Result<Vec<ChangedFile>, AppErro
             continue;
         }
 
-        let file_status = if s.intersects(Status::INDEX_NEW | Status::WT_NEW) {
+        let file_status = if s.contains(Status::WT_NEW) && !s.intersects(
+            Status::INDEX_NEW | Status::INDEX_MODIFIED | Status::INDEX_DELETED,
+        ) {
+            FileStatus::Untracked
+        } else if s.intersects(Status::INDEX_NEW) {
             FileStatus::New
         } else if s.intersects(Status::INDEX_DELETED | Status::WT_DELETED) {
             FileStatus::Deleted
@@ -192,7 +197,7 @@ mod tests {
         initial_commit(&repo);
         fs::write(dir.path().join("foo.txt"), "hello\n").unwrap();
         let files = list_changed_files(&repo).unwrap();
-        assert!(files.iter().any(|f| f.path == "foo.txt" && f.status == FileStatus::New));
+        assert!(files.iter().any(|f| f.path == "foo.txt" && f.status == FileStatus::Untracked));
     }
 
     #[test]

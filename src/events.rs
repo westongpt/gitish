@@ -14,6 +14,9 @@ pub enum AppEvent {
     Unstage,
     Discard,
     Commit,
+    // remote
+    Push,
+    Pull,
     // modes
     ToggleFocus,
     OpenThemePicker,
@@ -64,6 +67,8 @@ fn translate_key(key: KeyEvent) -> Option<AppEvent> {
         KeyCode::Char('u') => Some(AppEvent::Unstage),
         KeyCode::Char('d') => Some(AppEvent::Discard),
         KeyCode::Char('c') => Some(AppEvent::Commit),
+        KeyCode::Char('P') => Some(AppEvent::Push),
+        KeyCode::Char('L') => Some(AppEvent::Pull),
         KeyCode::Char('t') => Some(AppEvent::OpenThemePicker),
         KeyCode::Tab => Some(AppEvent::ToggleFocus),
         KeyCode::Enter => Some(AppEvent::Confirm),

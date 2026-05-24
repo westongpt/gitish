@@ -1,4 +1,6 @@
+use std::io::Write as _;
 use std::path::Path;
+use std::process::{Command, Stdio};
 
 use git2::{ApplyLocation, Repository};
 
@@ -19,7 +21,6 @@ pub fn unstage_file(repo: &Repository, path: &str) -> Result<(), AppError> {
             repo.reset_default(Some(commit.as_object()), [path])?;
         }
         None => {
-            // No HEAD yet — remove from index entirely
             let mut index = repo.index()?;
             index.remove_path(Path::new(path))?;
             index.write()?;
@@ -29,73 +30,78 @@ pub fn unstage_file(repo: &Repository, path: &str) -> Result<(), AppError> {
 }
 
 pub fn stage_hunk(repo: &Repository, path: &str, hunk: &Hunk) -> Result<(), AppError> {
-    let patch = build_patch(path, hunk, false);
+    // Forward patch of the workdir diff, applied to the index.
+    let patch = build_patch(path, hunk);
     let diff = git2::Diff::from_buffer(patch.as_bytes())?;
     repo.apply(&diff, ApplyLocation::Index, None)?;
     Ok(())
 }
 
+/// Unstage a single hunk by piping the forward staged-diff patch to
+/// `git apply --cached -R`. We let git handle the reversal rather than
+/// computing it manually, which avoids line-number drift across multi-hunk files.
 pub fn unstage_hunk(repo: &Repository, path: &str, hunk: &Hunk) -> Result<(), AppError> {
-    let patch = build_patch(path, hunk, true);
-    let diff = git2::Diff::from_buffer(patch.as_bytes())?;
-    repo.apply(&diff, ApplyLocation::Index, None)?;
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| AppError::Invalid("bare repository".into()))?;
+
+    let patch = build_patch(path, hunk);
+
+    let mut child = Command::new("git")
+        .args(["apply", "--cached", "-R"])
+        .current_dir(workdir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(patch.as_bytes())?;
+    }
+
+    let out = child.wait_with_output()?;
+    if !out.status.success() {
+        let msg = String::from_utf8_lossy(&out.stderr);
+        return Err(AppError::Invalid(format!("unstage failed: {}", msg.trim())));
+    }
     Ok(())
 }
 
 pub fn discard_hunk(repo: &Repository, path: &str, hunk: &Hunk) -> Result<(), AppError> {
-    let patch = build_patch(path, hunk, false);
+    let patch = build_patch(path, hunk);
     let diff = git2::Diff::from_buffer(patch.as_bytes())?;
     repo.apply(&diff, ApplyLocation::WorkDir, None)?;
     Ok(())
 }
 
-fn build_patch(path: &str, hunk: &Hunk, reverse: bool) -> String {
+fn build_patch(path: &str, hunk: &Hunk) -> String {
     use crate::git::repo::LineKind;
 
     let mut out = String::new();
     out.push_str(&format!("diff --git a/{path} b/{path}\n"));
     out.push_str(&format!("--- a/{path}\n"));
     out.push_str(&format!("+++ b/{path}\n"));
-
-    if reverse {
-        out.push_str(&format!(
-            "@@ -{},{} +{},{} @@\n",
-            hunk.new_start, hunk.new_lines, hunk.old_start, hunk.old_lines
-        ));
-        for line in &hunk.lines {
-            let prefix = match line.kind {
-                LineKind::Added => '-',
-                LineKind::Removed => '+',
-                LineKind::Context => ' ',
-            };
-            out.push(prefix);
-            out.push_str(&line.content);
-            out.push('\n');
-        }
-    } else {
-        out.push_str(&format!(
-            "@@ -{},{} +{},{} @@\n",
-            hunk.old_start, hunk.old_lines, hunk.new_start, hunk.new_lines
-        ));
-        for line in &hunk.lines {
-            let prefix = match line.kind {
-                LineKind::Added => '+',
-                LineKind::Removed => '-',
-                LineKind::Context => ' ',
-            };
-            out.push(prefix);
-            out.push_str(&line.content);
-            out.push('\n');
-        }
+    out.push_str(&format!(
+        "@@ -{},{} +{},{} @@\n",
+        hunk.old_start, hunk.old_lines, hunk.new_start, hunk.new_lines
+    ));
+    for line in &hunk.lines {
+        let prefix = match line.kind {
+            LineKind::Added => '+',
+            LineKind::Removed => '-',
+            LineKind::Context => ' ',
+        };
+        out.push(prefix);
+        out.push_str(&line.content);
+        out.push('\n');
     }
-
     out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::repo::{diff_for_file, list_changed_files};
+    use crate::git::repo::{diff_for_file, list_changed_files, staged_diff_for_file};
     use std::fs;
     use std::path::Path;
     use tempfile::TempDir;
@@ -134,13 +140,11 @@ mod tests {
 
         stage_file(&repo, "file.txt").unwrap();
         let files = list_changed_files(&repo).unwrap();
-        let f = files.iter().find(|f| f.path == "file.txt").unwrap();
-        assert!(f.staged);
+        assert!(files.iter().any(|f| f.path == "file.txt" && f.staged));
 
         unstage_file(&repo, "file.txt").unwrap();
         let files = list_changed_files(&repo).unwrap();
-        let f = files.iter().find(|f| f.path == "file.txt").unwrap();
-        assert!(!f.staged);
+        assert!(files.iter().any(|f| f.path == "file.txt" && !f.staged));
     }
 
     #[test]
@@ -153,7 +157,26 @@ mod tests {
         stage_hunk(&repo, "file.txt", &hunks[0]).unwrap();
 
         let files = list_changed_files(&repo).unwrap();
-        let f = files.iter().find(|f| f.path == "file.txt").unwrap();
-        assert!(f.staged);
+        assert!(files.iter().any(|f| f.path == "file.txt" && f.staged));
+    }
+
+    #[test]
+    fn unstage_hunk_restores_index() {
+        let (dir, repo) = make_repo_with_commit("line1\nline2\nline3\n");
+        fs::write(dir.path().join("file.txt"), "line1\nchanged\nline3\n").unwrap();
+
+        // Stage the hunk first
+        let hunks = diff_for_file(&repo, "file.txt").unwrap();
+        stage_hunk(&repo, "file.txt", &hunks[0]).unwrap();
+        let files = list_changed_files(&repo).unwrap();
+        assert!(files.iter().any(|f| f.path == "file.txt" && f.staged));
+
+        // Now unstage it using the staged hunk
+        let staged = staged_diff_for_file(&repo, "file.txt").unwrap();
+        assert!(!staged.is_empty());
+        unstage_hunk(&repo, "file.txt", &staged[0]).unwrap();
+
+        let files = list_changed_files(&repo).unwrap();
+        assert!(files.iter().any(|f| f.path == "file.txt" && !f.staged));
     }
 }
