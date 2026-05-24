@@ -35,7 +35,7 @@ pub enum Mode {
     CommitTitle,
     CommitBody,
     ThemePicker,
-    Confirming(PendingAction),
+    Help,
     Quitting,
 }
 
@@ -383,7 +383,11 @@ impl App {
                 Mode::CommitTitle => self.handle_commit_title(event)?,
                 Mode::CommitBody => self.handle_commit_body(event)?,
                 Mode::ThemePicker => self.handle_theme_picker(event)?,
+<<<<<<< HEAD
                 Mode::Confirming(action) => self.handle_confirming(event, action)?,
+=======
+                Mode::Help => self.handle_help(event)?,
+>>>>>>> fa2ea65 (UI Cleanup)
                 Mode::Quitting => break,
             }
 
@@ -394,9 +398,18 @@ impl App {
         Ok(())
     }
 
+    fn handle_help(&mut self, event: AppEvent) -> Result<(), AppError> {
+        match event {
+            AppEvent::Quit | AppEvent::Cancel | AppEvent::OpenHelp => self.mode = Mode::Normal,
+            _ => {}
+        }
+        Ok(())
+    }
+
     fn handle_normal(&mut self, event: AppEvent) -> Result<(), AppError> {
         match event {
             AppEvent::Quit => self.mode = Mode::Quitting,
+            AppEvent::OpenHelp => self.mode = Mode::Help,
             AppEvent::ToggleFocus => {
                 self.focus = match self.focus {
                     Focus::FileList => Focus::DiffView,

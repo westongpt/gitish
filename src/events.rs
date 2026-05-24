@@ -21,6 +21,7 @@ pub enum AppEvent {
     // modes
     ToggleFocus,
     OpenThemePicker,
+    OpenHelp,
     // text input
     Char(char),
     Backspace,
@@ -72,6 +73,7 @@ fn translate_key(key: KeyEvent) -> Option<AppEvent> {
         KeyCode::Char('P') => Some(AppEvent::Push),
         KeyCode::Char('L') => Some(AppEvent::Pull),
         KeyCode::Char('t') => Some(AppEvent::OpenThemePicker),
+        KeyCode::Char('?') => Some(AppEvent::OpenHelp),
         KeyCode::Tab => Some(AppEvent::ToggleFocus),
         KeyCode::Enter => Some(AppEvent::Confirm),
         KeyCode::Esc => Some(AppEvent::Cancel),
