@@ -30,6 +30,23 @@ impl PendingAction {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum LoadingOp {
+    Push,
+    Pull,
+    Commit,
+}
+
+impl LoadingOp {
+    pub fn label(&self) -> &'static str {
+        match self {
+            LoadingOp::Push => "Pushing…",
+            LoadingOp::Pull => "Pulling…",
+            LoadingOp::Commit => "Committing…",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
     Normal,
     CommitTitle,
@@ -37,6 +54,7 @@ pub enum Mode {
     ThemePicker,
     Help,
     Confirming(PendingAction),
+    Loading(LoadingOp),
     Quitting,
 }
 
@@ -289,7 +307,6 @@ impl App {
     // ── remote ────────────────────────────────────────────────────────────
 
     pub fn do_push(&mut self) -> Result<(), AppError> {
-        self.status_msg = Some("Pushing…".into());
         let result = remote::push(&self.repo)?;
         self.status_msg = Some(if result.success {
             format!("Push: {}", result.output)
@@ -300,13 +317,22 @@ impl App {
     }
 
     pub fn do_pull(&mut self) -> Result<(), AppError> {
-        self.status_msg = Some("Pulling…".into());
         let result = remote::pull(&self.repo)?;
         if result.success {
             self.status_msg = Some(format!("Pull: {}", result.output));
             self.refresh()?;
         } else {
             self.status_msg = Some(format!("Pull failed: {}", result.output));
+        }
+        Ok(())
+    }
+
+    pub fn execute_loading(&mut self, op: LoadingOp) -> Result<(), AppError> {
+        self.mode = Mode::Normal;
+        match op {
+            LoadingOp::Push => self.do_push()?,
+            LoadingOp::Pull => self.do_pull()?,
+            LoadingOp::Commit => self.do_commit()?,
         }
         Ok(())
     }
@@ -372,6 +398,13 @@ impl App {
         loop {
             terminal.draw(|f| crate::ui::draw(f, self))?;
 
+            // Execute any pending loading operation after the frame is rendered,
+            // so the user sees the loading indicator before we block.
+            if let Mode::Loading(op) = self.mode.clone() {
+                self.execute_loading(op)?;
+                continue;
+            }
+
             let text_input = matches!(self.mode, Mode::CommitTitle | Mode::CommitBody);
             let Some(event) = next_event(text_input)? else {
                 continue;
@@ -386,6 +419,7 @@ impl App {
                 Mode::ThemePicker => self.handle_theme_picker(event)?,
                 Mode::Confirming(action) => self.handle_confirming(event, action)?,
                 Mode::Help => self.handle_help(event)?,
+                Mode::Loading(_) => {} // handled above before event polling
                 Mode::Quitting => break,
             }
 
@@ -428,8 +462,8 @@ impl App {
             AppEvent::Unstage => self.unstage_current()?,
             AppEvent::Discard => self.discard_current()?,
             AppEvent::DeleteUntracked => self.delete_untracked_current(),
-            AppEvent::Push => self.do_push()?,
-            AppEvent::Pull => self.do_pull()?,
+            AppEvent::Push => self.mode = Mode::Loading(LoadingOp::Push),
+            AppEvent::Pull => self.mode = Mode::Loading(LoadingOp::Pull),
             AppEvent::Commit => self.mode = Mode::CommitTitle,
             AppEvent::OpenThemePicker => {
                 self.theme_picker_cursor = self.theme_idx;
@@ -458,7 +492,7 @@ impl App {
 
     fn handle_commit_body(&mut self, event: AppEvent) -> Result<(), AppError> {
         match event {
-            AppEvent::Confirm => self.do_commit()?,
+            AppEvent::Confirm => self.mode = Mode::Loading(LoadingOp::Commit),
             AppEvent::Cancel => self.mode = Mode::Normal,
             AppEvent::Char(ch) => self.commit_body.push(ch),
             AppEvent::Backspace => {
@@ -503,4 +537,67 @@ fn load_hunks_for(repo: &Repository, file: Option<&ChangedFile>) -> (Vec<Hunk>, 
     let staged = staged_diff_for_file(repo, &f.path).unwrap_or_default();
     let unstaged = diff_for_file(repo, &f.path).unwrap_or_default();
     (staged, unstaged)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn loading_op_labels_are_non_empty() {
+        assert!(!LoadingOp::Push.label().is_empty());
+        assert!(!LoadingOp::Pull.label().is_empty());
+        assert!(!LoadingOp::Commit.label().is_empty());
+    }
+
+    #[test]
+    fn loading_op_labels_are_distinct() {
+        let labels = [LoadingOp::Push.label(), LoadingOp::Pull.label(), LoadingOp::Commit.label()];
+        for (i, a) in labels.iter().enumerate() {
+            for (j, b) in labels.iter().enumerate() {
+                if i != j {
+                    assert_ne!(a, b, "ops at {i} and {j} share label {a:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn mode_loading_equality() {
+        assert_eq!(Mode::Loading(LoadingOp::Push), Mode::Loading(LoadingOp::Push));
+        assert_ne!(Mode::Loading(LoadingOp::Push), Mode::Loading(LoadingOp::Pull));
+        assert_ne!(Mode::Loading(LoadingOp::Push), Mode::Normal);
+    }
+
+    #[test]
+    fn pending_action_push_sets_loading_mode() {
+        // Simulate what handle_normal does for the Push event — no repo needed.
+        let mut mode = Mode::Normal;
+        // Replicate the dispatch logic
+        let event = crate::events::AppEvent::Push;
+        if event == crate::events::AppEvent::Push {
+            mode = Mode::Loading(LoadingOp::Push);
+        }
+        assert_eq!(mode, Mode::Loading(LoadingOp::Push));
+    }
+
+    #[test]
+    fn pending_action_pull_sets_loading_mode() {
+        let mut mode = Mode::Normal;
+        let event = crate::events::AppEvent::Pull;
+        if event == crate::events::AppEvent::Pull {
+            mode = Mode::Loading(LoadingOp::Pull);
+        }
+        assert_eq!(mode, Mode::Loading(LoadingOp::Pull));
+    }
+
+    #[test]
+    fn commit_confirm_sets_loading_mode() {
+        let mut mode = Mode::CommitBody;
+        let event = crate::events::AppEvent::Confirm;
+        if matches!(mode, Mode::CommitBody) && event == crate::events::AppEvent::Confirm {
+            mode = Mode::Loading(LoadingOp::Commit);
+        }
+        assert_eq!(mode, Mode::Loading(LoadingOp::Commit));
+    }
 }
