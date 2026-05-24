@@ -27,7 +27,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         _ => {
             let hint = match app.focus {
                 crate::app::Focus::FileList => {
-                    "s: stage  u: unstage  c: commit  P: push  L: pull  Tab: diff  t: theme  q: quit"
+                    "s: stage  u: unstage  X: delete untracked  c: commit  P: push  L: pull  Tab: diff  t: theme  q: quit"
                 }
                 crate::app::Focus::DiffView => {
                     "j/k: nav  s: stage hunk  u: unstage  d: discard  P: push  L: pull  Tab: files"

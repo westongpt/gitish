@@ -13,6 +13,7 @@ pub enum AppEvent {
     Stage,
     Unstage,
     Discard,
+    DeleteUntracked,
     Commit,
     // remote
     Push,
@@ -66,6 +67,7 @@ fn translate_key(key: KeyEvent) -> Option<AppEvent> {
         KeyCode::Char('s') => Some(AppEvent::Stage),
         KeyCode::Char('u') => Some(AppEvent::Unstage),
         KeyCode::Char('d') => Some(AppEvent::Discard),
+        KeyCode::Char('X') => Some(AppEvent::DeleteUntracked),
         KeyCode::Char('c') => Some(AppEvent::Commit),
         KeyCode::Char('P') => Some(AppEvent::Push),
         KeyCode::Char('L') => Some(AppEvent::Pull),

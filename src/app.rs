@@ -5,6 +5,7 @@ use crate::error::AppError;
 use crate::events::{next_event, AppEvent};
 use crate::git::repo::{diff_for_file, list_changed_files, staged_diff_for_file, ChangedFile, Hunk};
 use crate::git::{commit::create_commit, remote, stage};
+use crate::git::repo::FileStatus;
 use crate::theme::{all_themes, load_theme_by_name, seed_themes, NamedTheme};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -14,11 +15,27 @@ pub enum Focus {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum PendingAction {
+    DeleteUntracked(String),
+}
+
+impl PendingAction {
+    pub fn prompt(&self) -> String {
+        match self {
+            PendingAction::DeleteUntracked(path) => {
+                format!("Delete untracked file '{path}'?")
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
     Normal,
     CommitTitle,
     CommitBody,
     ThemePicker,
+    Confirming(PendingAction),
     Quitting,
 }
 
@@ -210,6 +227,28 @@ impl App {
         Ok(())
     }
 
+    pub fn delete_untracked_current(&mut self) {
+        let Some(file) = self.files.get(self.file_cursor) else {
+            return;
+        };
+        if file.status != FileStatus::Untracked {
+            self.status_msg = Some("Not an untracked file".into());
+            return;
+        }
+        self.mode = Mode::Confirming(PendingAction::DeleteUntracked(file.path.clone()));
+    }
+
+    pub fn execute_pending(&mut self, action: PendingAction) -> Result<(), AppError> {
+        match action {
+            PendingAction::DeleteUntracked(path) => {
+                stage::delete_untracked_file(&self.repo, &path)?;
+                self.status_msg = Some(format!("Deleted {path}"));
+                self.refresh()?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn discard_current(&mut self) -> Result<(), AppError> {
         let Some(file) = self.files.get(self.file_cursor) else {
             return Ok(());
@@ -344,6 +383,7 @@ impl App {
                 Mode::CommitTitle => self.handle_commit_title(event)?,
                 Mode::CommitBody => self.handle_commit_body(event)?,
                 Mode::ThemePicker => self.handle_theme_picker(event)?,
+                Mode::Confirming(action) => self.handle_confirming(event, action)?,
                 Mode::Quitting => break,
             }
 
@@ -376,6 +416,7 @@ impl App {
             AppEvent::Stage => self.stage_current()?,
             AppEvent::Unstage => self.unstage_current()?,
             AppEvent::Discard => self.discard_current()?,
+            AppEvent::DeleteUntracked => self.delete_untracked_current(),
             AppEvent::Push => self.do_push()?,
             AppEvent::Pull => self.do_pull()?,
             AppEvent::Commit => self.mode = Mode::CommitTitle,
@@ -411,6 +452,21 @@ impl App {
             AppEvent::Char(ch) => self.commit_body.push(ch),
             AppEvent::Backspace => {
                 self.commit_body.pop();
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn handle_confirming(&mut self, event: AppEvent, action: PendingAction) -> Result<(), AppError> {
+        match event {
+            AppEvent::Confirm | AppEvent::Char('y') | AppEvent::Char('Y') => {
+                self.mode = Mode::Normal;
+                self.execute_pending(action)?;
+            }
+            AppEvent::Cancel | AppEvent::Char('n') | AppEvent::Char('N') => {
+                self.mode = Mode::Normal;
+                self.status_msg = Some("Cancelled".into());
             }
             _ => {}
         }

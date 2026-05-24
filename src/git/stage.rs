@@ -67,6 +67,15 @@ pub fn unstage_hunk(repo: &Repository, path: &str, hunk: &Hunk) -> Result<(), Ap
     Ok(())
 }
 
+pub fn delete_untracked_file(repo: &Repository, path: &str) -> Result<(), AppError> {
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| AppError::Invalid("bare repository".into()))?;
+    let full = workdir.join(path);
+    std::fs::remove_file(&full)?;
+    Ok(())
+}
+
 pub fn discard_hunk(repo: &Repository, path: &str, hunk: &Hunk) -> Result<(), AppError> {
     let patch = build_patch(path, hunk);
     let diff = git2::Diff::from_buffer(patch.as_bytes())?;
@@ -158,6 +167,25 @@ mod tests {
 
         let files = list_changed_files(&repo).unwrap();
         assert!(files.iter().any(|f| f.path == "file.txt" && f.staged));
+    }
+
+    #[test]
+    fn delete_untracked_removes_file() {
+        let (dir, repo) = make_repo_with_commit("original\n");
+        let untracked = dir.path().join("new_file.txt");
+        fs::write(&untracked, "hello\n").unwrap();
+
+        let files = list_changed_files(&repo).unwrap();
+        assert!(files
+            .iter()
+            .any(|f| f.path == "new_file.txt"
+                && f.status == crate::git::repo::FileStatus::Untracked));
+
+        delete_untracked_file(&repo, "new_file.txt").unwrap();
+
+        assert!(!untracked.exists());
+        let files = list_changed_files(&repo).unwrap();
+        assert!(!files.iter().any(|f| f.path == "new_file.txt"));
     }
 
     #[test]
