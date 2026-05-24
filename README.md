@@ -61,16 +61,43 @@ Run from inside any git repository:
 gitish
 ```
 
+### CLI Options
+
+| Option | Description |
+|--------|-------------|
+| `--path <path>` | Open the git repository at `<path>` instead of discovering one from the current directory |
+| `--open <state>` | Launch directly into a UI state. Valid values: `theme-picker` |
+| `--help`, `-h`, `-?` | Print help and exit |
+
+**Examples:**
+
+```bash
+# Open a repo in another directory
+gitish --path ~/projects/myrepo
+
+# Jump straight to the theme picker
+gitish --open theme-picker
+```
+
 ## Configuration
 
 Config file: `~/.config/gitish/config.toml`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `theme` | string | `"Catppuccin Mocha"` | Name of the active color theme |
+| `transparent` | bool | `false` | Render with a transparent background for compositor transparency |
+
+**Example `config.toml`:**
 
 ```toml
 theme = "Catppuccin Mocha"   # Mocha | Macchiato | Frappe | Latte
 transparent = false           # set true to pass background through to compositor
 ```
 
-Themes are stored as base16 YAML files in `~/.config/gitish/themes/`. Drop any base16-compatible theme file there and it will appear in the picker (`t`).
+### Custom themes
+
+Themes are stored as base16 YAML files in `~/.config/gitish/themes/`. Drop any base16-compatible theme file there and it will appear in the theme picker (`t`).
 
 ## Stack
 
