@@ -17,7 +17,7 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 
 use crate::app::App;
-use crate::args::parse_args;
+use crate::args::{InitialMode, parse_args};
 use crate::config::config_dir;
 use crate::error::AppError;
 use crate::git::repo::open_repo;
@@ -66,6 +66,9 @@ fn main() -> Result<(), AppError> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new(repo, config_dir, None)?;
+    if cli.open == Some(InitialMode::ThemePicker) {
+        app.open_theme_picker();
+    }
     app.run(&mut terminal)?;
 
     Ok(())

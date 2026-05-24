@@ -2,8 +2,25 @@ use std::path::PathBuf;
 
 use crate::error::AppError;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum InitialMode {
+    ThemePicker,
+}
+
+impl InitialMode {
+    fn parse(s: &str) -> Result<Self, AppError> {
+        match s {
+            "theme-picker" => Ok(Self::ThemePicker),
+            other => Err(AppError::Invalid(format!(
+                "Unknown --open value '{other}'. Valid values: theme-picker"
+            ))),
+        }
+    }
+}
+
 pub struct Args {
     pub path: Option<PathBuf>,
+    pub open: Option<InitialMode>,
 }
 
 const HELP: &str = "\
@@ -13,13 +30,15 @@ USAGE:
     gitish [OPTIONS]
 
 OPTIONS:
-    --path <path>    Open the git repository at <path> instead of the current directory
-    --help, -h, -?   Print this help message and exit
+    --path <path>          Open the git repository at <path> instead of the current directory
+    --open <state>         Open directly into a UI state (theme-picker)
+    --help, -h, -?         Print this help message and exit
 ";
 
 pub fn parse_args() -> Result<Option<Args>, AppError> {
     let raw: Vec<String> = std::env::args().skip(1).collect();
     let mut path: Option<PathBuf> = None;
+    let mut open: Option<InitialMode> = None;
     let mut i = 0;
 
     while i < raw.len() {
@@ -35,6 +54,13 @@ pub fn parse_args() -> Result<Option<Args>, AppError> {
                 })?;
                 path = Some(PathBuf::from(value));
             }
+            "--open" => {
+                i += 1;
+                let value = raw.get(i).ok_or_else(|| {
+                    AppError::Invalid("--open requires a state argument".into())
+                })?;
+                open = Some(InitialMode::parse(value)?);
+            }
             other => {
                 return Err(AppError::Invalid(format!(
                     "Unknown option '{}'. Run with --help for usage.",
@@ -45,7 +71,7 @@ pub fn parse_args() -> Result<Option<Args>, AppError> {
         i += 1;
     }
 
-    Ok(Some(Args { path }))
+    Ok(Some(Args { path, open }))
 }
 
 #[cfg(test)]
@@ -55,6 +81,7 @@ mod tests {
     fn parse(args: &[&str]) -> Result<Option<Args>, AppError> {
         let raw: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         let mut path: Option<PathBuf> = None;
+        let mut open: Option<InitialMode> = None;
         let mut i = 0;
 
         while i < raw.len() {
@@ -67,6 +94,13 @@ mod tests {
                     })?;
                     path = Some(PathBuf::from(value));
                 }
+                "--open" => {
+                    i += 1;
+                    let value = raw.get(i).ok_or_else(|| {
+                        AppError::Invalid("--open requires a state argument".into())
+                    })?;
+                    open = Some(InitialMode::parse(value)?);
+                }
                 other => {
                     return Err(AppError::Invalid(format!(
                         "Unknown option '{}'. Run with --help for usage.",
@@ -77,13 +111,14 @@ mod tests {
             i += 1;
         }
 
-        Ok(Some(Args { path }))
+        Ok(Some(Args { path, open }))
     }
 
     #[test]
     fn no_args_returns_default() {
         let result = parse(&[]).unwrap().unwrap();
         assert!(result.path.is_none());
+        assert!(result.open.is_none());
     }
 
     #[test]
@@ -119,6 +154,24 @@ mod tests {
     #[test]
     fn path_flag_missing_value_is_error() {
         let result = parse(&["--path"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn open_theme_picker_sets_mode() {
+        let result = parse(&["--open", "theme-picker"]).unwrap().unwrap();
+        assert_eq!(result.open, Some(InitialMode::ThemePicker));
+    }
+
+    #[test]
+    fn open_missing_value_is_error() {
+        let result = parse(&["--open"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn open_unknown_value_is_error() {
+        let result = parse(&["--open", "banana"]);
         assert!(result.is_err());
     }
 }

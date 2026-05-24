@@ -421,6 +421,11 @@ impl App {
         Ok(())
     }
 
+    pub fn open_theme_picker(&mut self) {
+        self.theme_picker_cursor = self.theme_idx;
+        self.mode = Mode::ThemePicker;
+    }
+
     pub fn picker_confirm(&mut self) -> Result<(), AppError> {
         if self.theme_picker_cursor == self.themes.len() {
             self.toggle_transparent()?;
@@ -587,10 +592,7 @@ impl App {
             AppEvent::Push => self.mode = Mode::Loading(LoadingOp::Push),
             AppEvent::Pull => self.mode = Mode::Loading(LoadingOp::Pull),
             AppEvent::Commit => self.mode = Mode::CommitTitle,
-            AppEvent::OpenThemePicker => {
-                self.theme_picker_cursor = self.theme_idx;
-                self.mode = Mode::ThemePicker;
-            }
+            AppEvent::OpenThemePicker => self.open_theme_picker(),
             _ => {}
         }
         Ok(())
