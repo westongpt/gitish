@@ -40,6 +40,7 @@ pub struct App {
     pub themes: Vec<NamedTheme>,
     pub theme_idx: usize,
     pub theme_picker_cursor: usize,
+    pub transparent: bool,
     config_dir: std::path::PathBuf,
 }
 
@@ -77,12 +78,31 @@ impl App {
             themes,
             theme_idx,
             theme_picker_cursor: theme_idx,
+            transparent: prefs.transparent,
             config_dir,
         })
     }
 
     pub fn current_theme(&self) -> &crate::theme::Theme {
         &self.themes[self.theme_idx].theme
+    }
+
+    /// Main content background — transparent if the user opted in.
+    pub fn bg_main(&self) -> ratatui::style::Color {
+        if self.transparent {
+            ratatui::style::Color::Reset
+        } else {
+            self.current_theme().base00
+        }
+    }
+
+    /// Panel / bar background (one shade lighter than main).
+    pub fn bg_panel(&self) -> ratatui::style::Color {
+        if self.transparent {
+            ratatui::style::Color::Reset
+        } else {
+            self.current_theme().base01
+        }
     }
 
     pub fn total_hunks(&self) -> usize {
@@ -244,7 +264,7 @@ impl App {
         self.theme_idx = self.theme_picker_cursor;
         self.mode = Mode::Normal;
         let name = self.themes[self.theme_idx].name.clone();
-        let prefs = Preferences { theme: Some(name.clone()) };
+        let prefs = Preferences { theme: Some(name.clone()), transparent: self.transparent };
         prefs.save(&self.config_dir)?;
         self.status_msg = Some(format!("Theme: {name}"));
         Ok(())
@@ -287,7 +307,8 @@ impl App {
         loop {
             terminal.draw(|f| crate::ui::draw(f, self))?;
 
-            let Some(event) = next_event()? else {
+            let text_input = matches!(self.mode, Mode::CommitTitle | Mode::CommitBody);
+            let Some(event) = next_event(text_input)? else {
                 continue;
             };
 

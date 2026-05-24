@@ -38,7 +38,16 @@ impl Drop for TerminalGuard {
 }
 
 fn main() -> Result<(), AppError> {
-    let repo = open_repo(&std::env::current_dir()?)?;
+    let cwd = std::env::current_dir()?;
+    let repo = open_repo(&cwd).map_err(|e| match &e {
+        AppError::Git(g) if g.code() == git2::ErrorCode::NotFound => {
+            AppError::Invalid(format!(
+                "No git repository found in '{}'.\nRun 'git init' or navigate to a repo first.",
+                cwd.display()
+            ))
+        }
+        _ => e,
+    })?;
     let config_dir = config_dir();
 
     let _guard = TerminalGuard::enter()?;

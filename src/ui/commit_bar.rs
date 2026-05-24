@@ -66,7 +66,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(border_color))
         .title(title)
-        .style(Style::default().bg(theme.base01));
+        .style(Style::default().bg(app.bg_panel()));
 
     let paragraph = Paragraph::new(display).block(block);
     f.render_widget(paragraph, area);

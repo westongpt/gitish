@@ -6,6 +6,8 @@ use crate::error::AppError;
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Preferences {
     pub theme: Option<String>,
+    #[serde(default)]
+    pub transparent: bool,
 }
 
 impl Preferences {

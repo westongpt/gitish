@@ -34,7 +34,7 @@ fn render_status_bar(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         Style::default().fg(theme.base0c),
     )]);
     f.render_widget(
-        Paragraph::new(line).style(Style::default().bg(theme.base01)),
+        Paragraph::new(line).style(Style::default().bg(app.bg_panel())),
         area,
     );
 }

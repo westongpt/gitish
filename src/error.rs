@@ -17,7 +17,6 @@ pub enum AppError {
     #[error("Theme parse error: {0}")]
     Yaml(#[from] serde_yaml_ng::Error),
 
-    #[allow(dead_code)]
     #[error("{0}")]
     Invalid(String),
 }

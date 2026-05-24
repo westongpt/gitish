@@ -56,7 +56,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             if is_selected {
                 selected_row = items.len();
             }
-            push_hunk_items(&mut items, hunk, is_selected, HunkKind::Staged, theme);
+            push_hunk_items(&mut items, hunk, is_selected, HunkKind::Staged, theme, app);
         }
     }
 
@@ -68,7 +68,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             if is_selected {
                 selected_row = items.len();
             }
-            push_hunk_items(&mut items, hunk, is_selected, HunkKind::Unstaged, theme);
+            push_hunk_items(&mut items, hunk, is_selected, HunkKind::Unstaged, theme, app);
         }
     }
 
@@ -91,7 +91,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                 .border_type(BorderType::Rounded)
                 .border_style(border_style)
                 .title(title)
-                .style(Style::default().bg(theme.base00)),
+                .style(Style::default().bg(app.bg_main())),
         )
         // No automatic highlight — we set backgrounds manually per line
         .highlight_style(Style::default());
@@ -120,9 +120,10 @@ fn push_hunk_items(
     is_selected: bool,
     kind: HunkKind,
     theme: &Theme,
+    app: &App,
 ) {
     let sel_bg = theme.base02;
-    let normal_bg = theme.base00;
+    let normal_bg = app.bg_main();
     let bg = if is_selected { sel_bg } else { normal_bg };
 
     // hunk header line

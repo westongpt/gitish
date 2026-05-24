@@ -33,7 +33,7 @@ pub fn render(f: &mut Frame, app: &App) {
                         .fg(theme.base0e)
                         .add_modifier(Modifier::BOLD),
                 ))
-                .style(Style::default().bg(theme.base01)),
+                .style(Style::default().bg(app.bg_panel())),
         )
         .highlight_style(
             Style::default()

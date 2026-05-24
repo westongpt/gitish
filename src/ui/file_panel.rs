@@ -74,7 +74,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                 .border_type(BorderType::Rounded)
                 .border_style(border_style)
                 .title(title)
-                .style(Style::default().bg(theme.base00)),
+                .style(Style::default().bg(app.bg_main())),
         )
         .highlight_style(
             Style::default()
