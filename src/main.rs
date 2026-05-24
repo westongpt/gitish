@@ -1,4 +1,5 @@
 mod app;
+mod args;
 mod config;
 mod error;
 mod events;
@@ -16,6 +17,7 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 
 use crate::app::App;
+use crate::args::parse_args;
 use crate::config::config_dir;
 use crate::error::AppError;
 use crate::git::repo::open_repo;
@@ -38,12 +40,21 @@ impl Drop for TerminalGuard {
 }
 
 fn main() -> Result<(), AppError> {
-    let cwd = std::env::current_dir()?;
-    let repo = open_repo(&cwd).map_err(|e| match &e {
+    let parsed = parse_args()?;
+    let Some(cli) = parsed else {
+        return Ok(());
+    };
+
+    let search_path = match cli.path {
+        Some(p) => p,
+        None => std::env::current_dir()?,
+    };
+
+    let repo = open_repo(&search_path).map_err(|e| match &e {
         AppError::Git(g) if g.code() == git2::ErrorCode::NotFound => {
             AppError::Invalid(format!(
                 "No git repository found in '{}'.\nRun 'git init' or navigate to a repo first.",
-                cwd.display()
+                search_path.display()
             ))
         }
         _ => e,
