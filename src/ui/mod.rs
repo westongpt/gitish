@@ -1,4 +1,5 @@
 mod commit_bar;
+mod confirm_dialog;
 mod diff_panel;
 mod file_panel;
 mod layout;
@@ -23,6 +24,10 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     if app.mode == crate::app::Mode::ThemePicker {
         theme_picker::render(f, app);
+    }
+
+    if matches!(app.mode, crate::app::Mode::Confirming(_)) {
+        confirm_dialog::render(f, app);
     }
 }
 
