@@ -29,10 +29,38 @@ gitish — interactive git staging TUI
 USAGE:
     gitish [OPTIONS]
 
-OPTIONS:
-    --path <path>          Open the git repository at <path> instead of the current directory
-    --open <state>         Open directly into a UI state (theme-picker)
-    --help, -h, -?         Print this help message and exit
+CLI OPTIONS:
+    --path <path>
+        Open the git repository at <path> instead of discovering one from the current
+        working directory. Useful when running gitish from a script or another directory.
+        Example: gitish --path ~/projects/myrepo
+
+    --open <state>
+        Launch directly into a specific UI state instead of the normal file list.
+        Valid values:
+          theme-picker   Open the theme picker immediately on startup
+        Example: gitish --open theme-picker
+
+    --help, -h, -?
+        Print this help message and exit.
+
+CONFIG:
+    Config file: ~/.config/gitish/config.toml
+
+    theme = \"<name>\"
+        The name of the active color theme. Must match a theme file in
+        ~/.config/gitish/themes/ or one of the built-in Catppuccin variants.
+        Built-in values: Catppuccin Mocha, Catppuccin Macchiato, Catppuccin Frappe,
+                         Catppuccin Latte
+        Example: theme = \"Catppuccin Mocha\"
+        Default: Catppuccin Mocha (first run)
+
+    transparent = <bool>
+        When true, gitish renders with a transparent background so your terminal's
+        compositor transparency shows through. When false (default), uses the theme's
+        background color.
+        Example: transparent = true
+        Default: false
 ";
 
 pub fn parse_args() -> Result<Option<Args>, AppError> {
