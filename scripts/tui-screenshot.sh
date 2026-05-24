@@ -24,9 +24,10 @@ if [[ ! -x "$GITISH_BIN" ]]; then
 fi
 
 # Set up a clean temp repo unless the caller provided one.
+CLEANUP_REPO=0
 if [[ -z "${GITISH_REPO:-}" ]]; then
     GITISH_REPO="$(mktemp -d)"
-    trap 'rm -rf "$GITISH_REPO"' EXIT
+    CLEANUP_REPO=1
     git -C "$GITISH_REPO" init -q
     git -C "$GITISH_REPO" config user.email test@test.com
     git -C "$GITISH_REPO" config user.name Test
@@ -45,7 +46,7 @@ sleep 2
 
 # Capture the live pane content (alternate screen) with ANSI escape codes.
 RAW="$(mktemp --suffix=.ans)"
-trap 'rm -f "$RAW"; rm -rf "${GITISH_REPO:-}"; tmux kill-session -t "$SESSION" 2>/dev/null || true' EXIT
+trap 'rm -f "$RAW"; [[ "$CLEANUP_REPO" == 1 ]] && rm -rf "$GITISH_REPO"; tmux kill-session -t "$SESSION" 2>/dev/null || true' EXIT
 tmux capture-pane -t "$SESSION" -p -e > "$RAW"
 
 tmux kill-session -t "$SESSION" 2>/dev/null || true

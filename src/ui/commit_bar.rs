@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
@@ -61,13 +63,33 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             .add_modifier(Modifier::BOLD),
     );
 
+    let workdir_label = app
+        .repo
+        .workdir()
+        .and_then(|p| tilde_path(p))
+        .unwrap_or_default();
+    let workdir_span = Span::styled(
+        format!(" {} ", workdir_label),
+        Style::default().fg(theme.base04),
+    );
+
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(border_color))
         .title(title)
+        .title(Line::from(workdir_span).right_aligned())
         .style(Style::default().bg(app.bg_panel()));
 
     let paragraph = Paragraph::new(display).block(block);
     f.render_widget(paragraph, area);
+}
+
+fn tilde_path(path: &Path) -> Option<String> {
+    let home = dirs::home_dir()?;
+    if let Ok(rel) = path.strip_prefix(&home) {
+        Some(format!("~/{}", rel.display()))
+    } else {
+        Some(path.display().to_string())
+    }
 }
