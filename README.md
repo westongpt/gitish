@@ -1,8 +1,8 @@
-# gitish
+# gitish (Git-ish)
 
 ![screenshot](img/screenshot_1.png)
 
-A terminal-based git staging UI written in Rust. Think `git add -p` but interactive — browse unstaged and staged hunks side-by-side, stage or discard individual changes, compose a commit message, and push, all without leaving the terminal.
+My dream git client, a terminal-based git staging UI written in Rust. Think `git add -p` but interactive — browse unstaged and staged hunks side-by-side, stage or discard individual changes, compose a commit message, and push, all without leaving the terminal.
 
 ![Rust](https://img.shields.io/badge/rust-2024-orange)
 
