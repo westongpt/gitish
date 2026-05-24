@@ -25,9 +25,13 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             theme.base0e,
         ),
         _ => {
-            let hint = match app.focus {
-                crate::app::Focus::FileList => "s: stage  u: unstage  c: commit  ? help  q: quit",
-                crate::app::Focus::DiffView => "j/k: nav  s: stage  u: unstage  d: discard  ? help",
+            let hint = if app.is_file_conflicted() && app.focus == crate::app::Focus::DiffView {
+                "j/k: nav  o: accept ours  i: accept incoming  b: accept both"
+            } else {
+                match app.focus {
+                    crate::app::Focus::FileList => "s: stage  u: unstage  c: commit  ? help  q: quit",
+                    crate::app::Focus::DiffView => "j/k: nav  s: stage  u: unstage  d: discard  ? help",
+                }
             };
             (" Commit ", "", hint, theme.base03)
         }

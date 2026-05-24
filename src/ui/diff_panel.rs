@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::app::{App, Focus};
-use crate::git::repo::{Hunk, LineKind};
+use crate::git::repo::{ConflictBlock, Hunk, LineKind};
 use crate::theme::Theme;
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
@@ -29,7 +29,13 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let no_file_selected = file_name.is_empty();
 
     let total = app.total_hunks();
-    let hunk_counter = if total > 0 {
+    let hunk_counter = if app.is_file_conflicted() && !app.conflict_blocks.is_empty() {
+        format!(
+            " [conflict {}/{}] ",
+            app.conflict_cursor + 1,
+            app.conflict_blocks.len()
+        )
+    } else if total > 0 {
         format!(" [{}/{}] ", app.hunk_cursor + 1, total)
     } else {
         String::new()
@@ -50,9 +56,8 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         ])
     };
 
-    // Build flat list of items tracking which row = which hunk
+    // Build flat list of items
     let mut items: Vec<ListItem> = Vec::new();
-    // row_to_hunk[row] = Some(hunk_cursor_index) if that row belongs to a hunk
     let mut selected_row: usize = 0;
 
     if no_file_selected {
@@ -60,6 +65,22 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             " No File Selected",
             Style::default().fg(theme.base03),
         ))));
+    } else if app.is_file_conflicted() {
+        // Conflict view
+        if app.conflict_blocks.is_empty() {
+            items.push(ListItem::new(Line::from(Span::styled(
+                " No conflict markers found",
+                Style::default().fg(theme.base03),
+            ))));
+        } else {
+            for (i, block) in app.conflict_blocks.iter().enumerate() {
+                let is_selected = app.conflict_cursor == i;
+                if is_selected {
+                    selected_row = items.len();
+                }
+                push_conflict_items(&mut items, block, i, is_selected, theme, app);
+            }
+        }
     } else {
         let n_staged = app.staged_hunks.len();
 
@@ -96,7 +117,8 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     }
 
     let mut state = ListState::default();
-    if total > 0 {
+    let has_content = !app.conflict_blocks.is_empty() || total > 0;
+    if has_content {
         state.select(Some(selected_row));
     }
 
@@ -118,6 +140,76 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 enum HunkKind {
     Staged,
     Unstaged,
+}
+
+fn push_conflict_items(
+    items: &mut Vec<ListItem>,
+    block: &ConflictBlock,
+    idx: usize,
+    is_selected: bool,
+    theme: &Theme,
+    app: &App,
+) {
+    let sel_bg = theme.base02;
+    let normal_bg = app.bg_main();
+    let bg = if is_selected { sel_bg } else { normal_bg };
+    let cursor_glyph = if is_selected { "▶ " } else { "  " };
+    let n_conflicts = app.conflict_blocks.len();
+
+    // Conflict block header
+    items.push(ListItem::new(Line::from(vec![
+        Span::styled(
+            cursor_glyph,
+            Style::default().fg(theme.base09).bg(bg),
+        ),
+        Span::styled(
+            format!("Conflict {}/{}", idx + 1, n_conflicts),
+            Style::default()
+                .fg(theme.base09)
+                .bg(bg)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            "  o: ours  i: incoming  b: both",
+            Style::default().fg(theme.base03).bg(bg),
+        ),
+    ])));
+
+    // Ours section header
+    items.push(ListItem::new(Line::from(Span::styled(
+        "  ◀ Ours (HEAD)",
+        Style::default()
+            .fg(theme.base0b)
+            .bg(bg)
+            .add_modifier(Modifier::ITALIC),
+    ))));
+    for line in &block.ours {
+        items.push(ListItem::new(Line::from(Span::styled(
+            format!("  +{line}"),
+            Style::default().fg(theme.base0b).bg(bg),
+        ))));
+    }
+
+    // Separator
+    items.push(ListItem::new(Line::from(Span::styled(
+        "  ═══════════════",
+        Style::default().fg(theme.base03).bg(bg),
+    ))));
+
+    // Theirs section header
+    items.push(ListItem::new(Line::from(Span::styled(
+        "  ▶ Incoming",
+        Style::default()
+            .fg(theme.base08)
+            .bg(bg)
+            .add_modifier(Modifier::ITALIC),
+    ))));
+    for line in &block.theirs {
+        items.push(ListItem::new(Line::from(Span::styled(
+            format!("  -{line}"),
+            Style::default().fg(theme.base08).bg(bg),
+        ))));
+    }
 }
 
 fn section_header<'a>(label: &'a str, fg: Color, bg: Color) -> ListItem<'a> {
