@@ -77,6 +77,9 @@ pub struct App {
     pub theme_idx: usize,
     pub theme_picker_cursor: usize,
     pub transparent: bool,
+    /// Set by refresh() to force terminal.clear() before the next draw,
+    /// preventing stale cells when content shrinks (e.g. after a commit).
+    pub needs_clear: bool,
     config_dir: std::path::PathBuf,
 }
 
@@ -115,6 +118,7 @@ impl App {
             theme_idx,
             theme_picker_cursor: theme_idx,
             transparent: prefs.transparent,
+            needs_clear: false,
             config_dir,
         })
     }
@@ -386,6 +390,9 @@ impl App {
         // if cursor was pointing at a staged hunk and we just staged something,
         // try to land on the same logical position
         let _ = prev_cursor; // currently unused; could use for smarter repositioning
+        // Content may have shrunk; signal the run loop to clear the terminal
+        // buffer before the next draw so ratatui's diff doesn't leave ghost cells.
+        self.needs_clear = true;
         Ok(())
     }
 
@@ -396,6 +403,13 @@ impl App {
         terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
     ) -> Result<(), AppError> {
         loop {
+            // After any operation that shrinks content (commit, stage, unstage),
+            // refresh() sets needs_clear so we force a full repaint and avoid
+            // ratatui's diff leaving ghost cells from the previous larger content.
+            if self.needs_clear {
+                terminal.clear()?;
+                self.needs_clear = false;
+            }
             terminal.draw(|f| crate::ui::draw(f, self))?;
 
             // Execute any pending loading operation after the frame is rendered,
@@ -599,5 +613,36 @@ mod tests {
             mode = Mode::Loading(LoadingOp::Commit);
         }
         assert_eq!(mode, Mode::Loading(LoadingOp::Commit));
+    }
+
+    fn make_test_app() -> (tempfile::TempDir, tempfile::TempDir, App) {
+        let repo_dir = tempfile::TempDir::new().unwrap();
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let repo = git2::Repository::init(repo_dir.path()).unwrap();
+        let app = App::new(repo, config_dir.path().to_path_buf(), None).unwrap();
+        (repo_dir, config_dir, app)
+    }
+
+    #[test]
+    fn needs_clear_false_on_construction() {
+        let (_repo, _cfg, app) = make_test_app();
+        assert!(!app.needs_clear, "needs_clear should start false");
+    }
+
+    #[test]
+    fn needs_clear_true_after_refresh() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.refresh().unwrap();
+        assert!(app.needs_clear, "refresh() must set needs_clear so the run loop clears stale cells");
+    }
+
+    #[test]
+    fn needs_clear_reset_after_being_consumed() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.refresh().unwrap();
+        assert!(app.needs_clear);
+        // Simulate the run loop consuming the flag
+        app.needs_clear = false;
+        assert!(!app.needs_clear);
     }
 }
