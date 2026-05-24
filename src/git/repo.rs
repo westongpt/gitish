@@ -340,7 +340,7 @@ mod tests {
         fs::write(p.join("f.txt"), "feat side\n").unwrap();
         run(&["add", "f.txt"]);
         run(&["commit", "-qm", "feat"]);
-        run(&["checkout", "-q", "main"]);
+        run(&["checkout", "-q", "-"]); // go back to the initial branch (main or master)
         fs::write(p.join("f.txt"), "main side\n").unwrap();
         run(&["add", "f.txt"]);
         run(&["commit", "-qm", "main"]);
