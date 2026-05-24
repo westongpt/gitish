@@ -5,6 +5,7 @@ use crate::error::AppError;
 use crate::events::{next_event, AppEvent};
 use crate::git::repo::{diff_for_file, list_changed_files, staged_diff_for_file, ChangedFile, Hunk};
 use crate::git::{commit::create_commit, remote, stage};
+use crate::git::repo::FileStatus;
 use crate::theme::{all_themes, load_theme_by_name, seed_themes, NamedTheme};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -210,6 +211,21 @@ impl App {
         Ok(())
     }
 
+    pub fn delete_untracked_current(&mut self) -> Result<(), AppError> {
+        let Some(file) = self.files.get(self.file_cursor) else {
+            return Ok(());
+        };
+        if file.status != FileStatus::Untracked {
+            self.status_msg = Some("Not an untracked file".into());
+            return Ok(());
+        }
+        let path = file.path.clone();
+        stage::delete_untracked_file(&self.repo, &path)?;
+        self.status_msg = Some(format!("Deleted {path}"));
+        self.refresh()?;
+        Ok(())
+    }
+
     pub fn discard_current(&mut self) -> Result<(), AppError> {
         let Some(file) = self.files.get(self.file_cursor) else {
             return Ok(());
@@ -376,6 +392,7 @@ impl App {
             AppEvent::Stage => self.stage_current()?,
             AppEvent::Unstage => self.unstage_current()?,
             AppEvent::Discard => self.discard_current()?,
+            AppEvent::DeleteUntracked => self.delete_untracked_current()?,
             AppEvent::Push => self.do_push()?,
             AppEvent::Pull => self.do_pull()?,
             AppEvent::Commit => self.mode = Mode::CommitTitle,
