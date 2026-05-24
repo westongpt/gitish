@@ -26,6 +26,8 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         .map(|f| f.path.as_str())
         .unwrap_or("");
 
+    let no_file_selected = file_name.is_empty();
+
     let total = app.total_hunks();
     let hunk_counter = if total > 0 {
         format!(" [{}/{}] ", app.hunk_cursor + 1, total)
@@ -33,50 +35,64 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         String::new()
     };
 
-    let title = Line::from(vec![
-        Span::styled(
-            format!(" {file_name}"),
+    let title = if no_file_selected {
+        Line::from(Span::styled(
+            " Diff",
             Style::default().fg(theme.base0d).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(hunk_counter, Style::default().fg(theme.base03)),
-    ]);
+        ))
+    } else {
+        Line::from(vec![
+            Span::styled(
+                format!(" {file_name}"),
+                Style::default().fg(theme.base0d).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(hunk_counter, Style::default().fg(theme.base03)),
+        ])
+    };
 
     // Build flat list of items tracking which row = which hunk
     let mut items: Vec<ListItem> = Vec::new();
     // row_to_hunk[row] = Some(hunk_cursor_index) if that row belongs to a hunk
     let mut selected_row: usize = 0;
 
-    let n_staged = app.staged_hunks.len();
-
-    if n_staged > 0 {
-        items.push(section_header("  Staged", theme.base0e, theme.base01));
-        for (i, hunk) in app.staged_hunks.iter().enumerate() {
-            let cursor_idx = i;
-            let is_selected = app.hunk_cursor == cursor_idx;
-            if is_selected {
-                selected_row = items.len();
-            }
-            push_hunk_items(&mut items, hunk, is_selected, HunkKind::Staged, theme, app);
-        }
-    }
-
-    if !app.unstaged_hunks.is_empty() {
-        items.push(section_header("  Unstaged", theme.base08, theme.base01));
-        for (i, hunk) in app.unstaged_hunks.iter().enumerate() {
-            let cursor_idx = n_staged + i;
-            let is_selected = app.hunk_cursor == cursor_idx;
-            if is_selected {
-                selected_row = items.len();
-            }
-            push_hunk_items(&mut items, hunk, is_selected, HunkKind::Unstaged, theme, app);
-        }
-    }
-
-    if items.is_empty() {
+    if no_file_selected {
         items.push(ListItem::new(Line::from(Span::styled(
-            " No changes",
+            " No File Selected",
             Style::default().fg(theme.base03),
         ))));
+    } else {
+        let n_staged = app.staged_hunks.len();
+
+        if n_staged > 0 {
+            items.push(section_header("  Staged", theme.base0e, theme.base01));
+            for (i, hunk) in app.staged_hunks.iter().enumerate() {
+                let cursor_idx = i;
+                let is_selected = app.hunk_cursor == cursor_idx;
+                if is_selected {
+                    selected_row = items.len();
+                }
+                push_hunk_items(&mut items, hunk, is_selected, HunkKind::Staged, theme, app);
+            }
+        }
+
+        if !app.unstaged_hunks.is_empty() {
+            items.push(section_header("  Unstaged", theme.base08, theme.base01));
+            for (i, hunk) in app.unstaged_hunks.iter().enumerate() {
+                let cursor_idx = n_staged + i;
+                let is_selected = app.hunk_cursor == cursor_idx;
+                if is_selected {
+                    selected_row = items.len();
+                }
+                push_hunk_items(&mut items, hunk, is_selected, HunkKind::Unstaged, theme, app);
+            }
+        }
+
+        if items.is_empty() {
+            items.push(ListItem::new(Line::from(Span::styled(
+                " No changes",
+                Style::default().fg(theme.base03),
+            ))));
+        }
     }
 
     let mut state = ListState::default();
@@ -163,5 +179,61 @@ fn push_hunk_items(
             format!("  {prefix}{}", line.content),
             Style::default().fg(fg).bg(bg),
         ))));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::{backend::TestBackend, Terminal};
+
+    use crate::app::App;
+
+    fn make_app() -> (tempfile::TempDir, tempfile::TempDir, App) {
+        let repo_dir = tempfile::TempDir::new().unwrap();
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let repo = git2::Repository::init(repo_dir.path()).unwrap();
+        let app = App::new(repo, config_dir.path().to_path_buf(), None).unwrap();
+        (repo_dir, config_dir, app)
+    }
+
+    fn render_to_string(app: &App, width: u16, height: u16) -> String {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| {
+                super::render(f, app, f.area());
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        buffer
+            .content
+            .iter()
+            .map(|c| c.symbol().to_string())
+            .collect::<Vec<_>>()
+            .join("")
+    }
+
+    #[test]
+    fn empty_state_shows_no_file_selected_message() {
+        let (_repo, _cfg, app) = make_app();
+        // A new empty repo has no files, so no file is selected.
+        assert!(app.files.is_empty());
+        let rendered = render_to_string(&app, 60, 10);
+        assert!(
+            rendered.contains("No File Selected"),
+            "expected 'No File Selected' in diff pane when no file is selected, got: {rendered:?}"
+        );
+    }
+
+    #[test]
+    fn empty_state_title_does_not_show_space_only() {
+        let (_repo, _cfg, app) = make_app();
+        assert!(app.files.is_empty());
+        let rendered = render_to_string(&app, 60, 10);
+        // Title should show "Diff", not just a bare space.
+        assert!(
+            rendered.contains("Diff"),
+            "expected 'Diff' in title when no file is selected, got: {rendered:?}"
+        );
     }
 }
