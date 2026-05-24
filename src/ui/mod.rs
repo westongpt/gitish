@@ -28,6 +28,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     if app.mode == crate::app::Mode::Help {
         render_help_popup(f, app);
     }
+    if matches!(app.mode, crate::app::Mode::Confirming(_)) {
+        confirm_dialog::render(f, app);
+    }
 }
 
 fn render_help_popup(f: &mut Frame, app: &App) {

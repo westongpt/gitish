@@ -36,6 +36,7 @@ pub enum Mode {
     CommitBody,
     ThemePicker,
     Help,
+    Confirming(PendingAction),
     Quitting,
 }
 
@@ -383,11 +384,8 @@ impl App {
                 Mode::CommitTitle => self.handle_commit_title(event)?,
                 Mode::CommitBody => self.handle_commit_body(event)?,
                 Mode::ThemePicker => self.handle_theme_picker(event)?,
-<<<<<<< HEAD
                 Mode::Confirming(action) => self.handle_confirming(event, action)?,
-=======
                 Mode::Help => self.handle_help(event)?,
->>>>>>> fa2ea65 (UI Cleanup)
                 Mode::Quitting => break,
             }
 
