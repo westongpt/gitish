@@ -3,9 +3,12 @@ use git2::Repository;
 use crate::config::Preferences;
 use crate::error::AppError;
 use crate::events::{next_event, AppEvent};
-use crate::git::repo::{diff_for_file, list_changed_files, staged_diff_for_file, ChangedFile, Hunk};
+use crate::git::repo::{
+    detect_conflicts, diff_for_file, list_changed_files, staged_diff_for_file, ChangedFile,
+    ConflictBlock, FileStatus, Hunk,
+};
+use crate::git::stage::ConflictSide;
 use crate::git::{commit::create_commit, remote, stage};
-use crate::git::repo::FileStatus;
 use crate::theme::{all_themes, load_theme_by_name, seed_themes, NamedTheme};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -68,6 +71,10 @@ pub struct App {
     pub unstaged_hunks: Vec<Hunk>,
     /// Index into [staged_hunks..., unstaged_hunks...] — staged come first
     pub hunk_cursor: usize,
+    /// Conflict blocks for the currently selected conflicted file.
+    pub conflict_blocks: Vec<ConflictBlock>,
+    /// Cursor within `conflict_blocks` when a conflicted file is selected.
+    pub conflict_cursor: usize,
     pub focus: Focus,
     pub mode: Mode,
     pub commit_title: String,
@@ -101,6 +108,7 @@ impl App {
 
         let files = list_changed_files(&repo)?;
         let (staged_hunks, unstaged_hunks) = load_hunks_for(&repo, files.first());
+        let conflict_blocks = load_conflicts_for(&repo, files.first());
 
         Ok(Self {
             repo,
@@ -109,6 +117,8 @@ impl App {
             staged_hunks,
             unstaged_hunks,
             hunk_cursor: 0,
+            conflict_blocks,
+            conflict_cursor: 0,
             focus: Focus::FileList,
             mode: Mode::Normal,
             commit_title: String::new(),
@@ -159,6 +169,52 @@ impl App {
                 .get(self.hunk_cursor - n)
                 .map(|h| (h, false))
         }
+    }
+
+    pub fn is_file_conflicted(&self) -> bool {
+        self.files
+            .get(self.file_cursor)
+            .map(|f| f.status == FileStatus::Conflicted)
+            .unwrap_or(false)
+    }
+
+    // ── conflict navigation ───────────────────────────────────────────────
+
+    pub fn move_conflict_up(&mut self) {
+        if self.conflict_cursor > 0 {
+            self.conflict_cursor -= 1;
+        }
+    }
+
+    pub fn move_conflict_down(&mut self) {
+        if self.conflict_cursor + 1 < self.conflict_blocks.len() {
+            self.conflict_cursor += 1;
+        }
+    }
+
+    pub fn resolve_conflict(&mut self, side: ConflictSide) -> Result<(), AppError> {
+        let Some(file) = self.files.get(self.file_cursor) else {
+            return Ok(());
+        };
+        if file.status != FileStatus::Conflicted {
+            return Ok(());
+        }
+        let path = file.path.clone();
+        stage::resolve_conflict_block(
+            &self.repo,
+            &path,
+            &self.conflict_blocks,
+            self.conflict_cursor,
+            side,
+        )?;
+        let label = match side {
+            ConflictSide::Ours => "ours",
+            ConflictSide::Theirs => "theirs",
+            ConflictSide::Both => "both",
+        };
+        self.status_msg = Some(format!("Conflict resolved ({label})"));
+        self.refresh()?;
+        Ok(())
     }
 
     // ── file list navigation ──────────────────────────────────────────────
@@ -369,10 +425,12 @@ impl App {
 
     fn reload_hunks(&mut self) {
         self.hunk_cursor = 0;
+        self.conflict_cursor = 0;
         let file = self.files.get(self.file_cursor);
         let (staged, unstaged) = load_hunks_for(&self.repo, file);
         self.staged_hunks = staged;
         self.unstaged_hunks = unstaged;
+        self.conflict_blocks = load_conflicts_for(&self.repo, file);
     }
 
     fn refresh(&mut self) -> Result<(), AppError> {
@@ -381,15 +439,21 @@ impl App {
             self.file_cursor = self.files.len().saturating_sub(1);
         }
         let prev_cursor = self.hunk_cursor;
+        let prev_conflict_cursor = self.conflict_cursor;
         self.reload_hunks();
-        // keep cursor in bounds after staging/unstaging shifts the list
+        // keep hunk cursor in bounds after staging/unstaging shifts the list
         let total = self.total_hunks();
         if total > 0 && self.hunk_cursor >= total {
             self.hunk_cursor = total - 1;
         }
-        // if cursor was pointing at a staged hunk and we just staged something,
-        // try to land on the same logical position
-        let _ = prev_cursor; // currently unused; could use for smarter repositioning
+        let _ = prev_cursor;
+        // keep conflict cursor in bounds after a block is resolved
+        let n_conflicts = self.conflict_blocks.len();
+        if n_conflicts > 0 && prev_conflict_cursor < n_conflicts {
+            self.conflict_cursor = prev_conflict_cursor;
+        } else if n_conflicts > 0 {
+            self.conflict_cursor = n_conflicts - 1;
+        }
         // Content may have shrunk; signal the run loop to clear the terminal
         // buffer before the next draw so ratatui's diff doesn't leave ghost cells.
         self.needs_clear = true;
@@ -464,18 +528,45 @@ impl App {
             }
             AppEvent::MoveUp => match self.focus {
                 Focus::FileList => self.move_file_up(),
-                Focus::DiffView => self.move_hunk_up(),
+                Focus::DiffView => {
+                    if self.is_file_conflicted() {
+                        self.move_conflict_up();
+                    } else {
+                        self.move_hunk_up();
+                    }
+                }
             },
             AppEvent::MoveDown => match self.focus {
                 Focus::FileList => self.move_file_down(),
-                Focus::DiffView => self.move_hunk_down(),
+                Focus::DiffView => {
+                    if self.is_file_conflicted() {
+                        self.move_conflict_down();
+                    } else {
+                        self.move_hunk_down();
+                    }
+                }
             },
-            AppEvent::NextHunk => self.move_hunk_down(),
-            AppEvent::PrevHunk => self.move_hunk_up(),
+            AppEvent::NextHunk => {
+                if self.is_file_conflicted() {
+                    self.move_conflict_down();
+                } else {
+                    self.move_hunk_down();
+                }
+            }
+            AppEvent::PrevHunk => {
+                if self.is_file_conflicted() {
+                    self.move_conflict_up();
+                } else {
+                    self.move_hunk_up();
+                }
+            }
             AppEvent::Stage => self.stage_current()?,
             AppEvent::Unstage => self.unstage_current()?,
             AppEvent::Discard => self.discard_current()?,
             AppEvent::DeleteUntracked => self.delete_untracked_current(),
+            AppEvent::AcceptOurs => self.resolve_conflict(ConflictSide::Ours)?,
+            AppEvent::AcceptTheirs => self.resolve_conflict(ConflictSide::Theirs)?,
+            AppEvent::AcceptBoth => self.resolve_conflict(ConflictSide::Both)?,
             AppEvent::Push => self.mode = Mode::Loading(LoadingOp::Push),
             AppEvent::Pull => self.mode = Mode::Loading(LoadingOp::Pull),
             AppEvent::Commit => self.mode = Mode::CommitTitle,
@@ -548,9 +639,22 @@ fn load_hunks_for(repo: &Repository, file: Option<&ChangedFile>) -> (Vec<Hunk>, 
     let Some(f) = file else {
         return (vec![], vec![]);
     };
+    if f.status == FileStatus::Conflicted {
+        return (vec![], vec![]);
+    }
     let staged = staged_diff_for_file(repo, &f.path).unwrap_or_default();
     let unstaged = diff_for_file(repo, &f.path).unwrap_or_default();
     (staged, unstaged)
+}
+
+fn load_conflicts_for(repo: &Repository, file: Option<&ChangedFile>) -> Vec<ConflictBlock> {
+    let Some(f) = file else {
+        return vec![];
+    };
+    if f.status != FileStatus::Conflicted {
+        return vec![];
+    }
+    detect_conflicts(repo, &f.path).unwrap_or_default()
 }
 
 #[cfg(test)]

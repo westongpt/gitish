@@ -10,10 +10,11 @@ use crate::app::{App, Focus};
 use crate::git::repo::FileStatus;
 
 // File-type glyphs (nf-md / Material Design Icons)
-const ICON_UNTRACKED: &str = "\u{F128}";  // nf-fa-question_circle  — unknown to git
-const ICON_NEW: &str       = "\u{F0214}"; // nf-md-file_plus        — newly staged file
-const ICON_MODIFIED: &str  = "\u{F03EB}"; // nf-md-pencil           — changed file
-const ICON_DELETED: &str   = "\u{F01B4}"; // nf-md-delete           — removed file
+const ICON_UNTRACKED: &str  = "\u{F128}";  // nf-fa-question_circle  — unknown to git
+const ICON_NEW: &str        = "\u{F0214}"; // nf-md-file_plus        — newly staged file
+const ICON_MODIFIED: &str   = "\u{F03EB}"; // nf-md-pencil           — changed file
+const ICON_DELETED: &str    = "\u{F01B4}"; // nf-md-delete           — removed file
+const ICON_CONFLICTED: &str = "\u{F0E7A}"; // nf-md-alert_circle     — merge conflict
 
 // Staging-state glyphs (nf-fa / Font Awesome circle family)
 const ICON_STAGED: &str   = "\u{F058}"; // nf-fa-check_circle   — fully in index
@@ -41,10 +42,11 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             };
 
             let (type_icon, type_color) = match file.status {
-                FileStatus::Untracked => (ICON_UNTRACKED, theme.base03),
-                FileStatus::New       => (ICON_NEW,        theme.base0b),
-                FileStatus::Modified  => (ICON_MODIFIED,   theme.base0d),
-                FileStatus::Deleted   => (ICON_DELETED,    theme.base08),
+                FileStatus::Untracked  => (ICON_UNTRACKED,  theme.base03),
+                FileStatus::New        => (ICON_NEW,         theme.base0b),
+                FileStatus::Modified   => (ICON_MODIFIED,    theme.base0d),
+                FileStatus::Deleted    => (ICON_DELETED,     theme.base08),
+                FileStatus::Conflicted => (ICON_CONFLICTED,  theme.base09),
             };
 
             let line = Line::from(vec![

@@ -5,7 +5,69 @@ use std::process::{Command, Stdio};
 use git2::{ApplyLocation, Repository};
 
 use crate::error::AppError;
-use crate::git::repo::Hunk;
+use crate::git::repo::{ConflictBlock, Hunk};
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ConflictSide {
+    Ours,
+    Theirs,
+    Both,
+}
+
+/// Resolve a single conflict block in-place and write the file back.
+/// Replaces the conflict block at `block_idx` with the chosen side's lines.
+/// If no more conflict markers remain after the edit, the file is staged.
+pub fn resolve_conflict_block(
+    repo: &Repository,
+    path: &str,
+    blocks: &[ConflictBlock],
+    block_idx: usize,
+    side: ConflictSide,
+) -> Result<(), AppError> {
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| AppError::Invalid("bare repository".into()))?;
+    let full_path = workdir.join(path);
+    let content = std::fs::read_to_string(&full_path)?;
+    let lines: Vec<&str> = content.lines().collect();
+
+    let block = blocks
+        .get(block_idx)
+        .ok_or_else(|| AppError::Invalid("conflict block index out of range".into()))?;
+
+    let replacement: Vec<String> = match side {
+        ConflictSide::Ours => block.ours.clone(),
+        ConflictSide::Theirs => block.theirs.clone(),
+        ConflictSide::Both => {
+            let mut both = block.ours.clone();
+            both.extend(block.theirs.clone());
+            both
+        }
+    };
+
+    let mut output: Vec<&str> = lines[..block.start_line].to_vec();
+    for r in &replacement {
+        output.push(r.as_str());
+    }
+    if block.end_line + 1 < lines.len() {
+        output.extend_from_slice(&lines[block.end_line + 1..]);
+    }
+
+    let mut new_content = output.join("\n");
+    // Preserve trailing newline if original had one
+    if content.ends_with('\n') {
+        new_content.push('\n');
+    }
+
+    std::fs::write(&full_path, &new_content)?;
+
+    // If no more conflict markers remain, stage the file automatically
+    if !new_content.contains("<<<<<<<") {
+        stage_file(repo, path)?;
+    }
+
+    Ok(())
+}
 
 pub fn stage_file(repo: &Repository, path: &str) -> Result<(), AppError> {
     let mut index = repo.index()?;
@@ -110,7 +172,9 @@ fn build_patch(path: &str, hunk: &Hunk) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::repo::{diff_for_file, list_changed_files, staged_diff_for_file};
+    use crate::git::repo::{
+        diff_for_file, list_changed_files, parse_conflict_markers, staged_diff_for_file,
+    };
     use std::fs;
     use std::path::Path;
     use tempfile::TempDir;
@@ -206,5 +270,85 @@ mod tests {
 
         let files = list_changed_files(&repo).unwrap();
         assert!(files.iter().any(|f| f.path == "file.txt" && !f.staged));
+    }
+
+    // ── conflict resolution ───────────────────────────────────────────────
+
+    fn write_conflict_file(dir: &TempDir) -> (String, Vec<ConflictBlock>) {
+        let content = "before\n<<<<<<< HEAD\nours_line\n=======\ntheirs_line\n>>>>>>> x\nafter\n";
+        fs::write(dir.path().join("conflict.txt"), content).unwrap();
+        let blocks = parse_conflict_markers(content);
+        (content.to_string(), blocks)
+    }
+
+    #[test]
+    fn resolve_conflict_ours_writes_correct_content() {
+        let (dir, repo) = make_repo_with_commit("original\n");
+        let (_, blocks) = write_conflict_file(&dir);
+
+        resolve_conflict_block(&repo, "conflict.txt", &blocks, 0, ConflictSide::Ours).unwrap();
+
+        let result = fs::read_to_string(dir.path().join("conflict.txt")).unwrap();
+        assert!(result.contains("ours_line"), "should contain ours line");
+        assert!(!result.contains("theirs_line"), "should not contain theirs line");
+        assert!(!result.contains("<<<<<<<"), "conflict markers should be gone");
+        assert!(result.contains("before"), "context before conflict should remain");
+        assert!(result.contains("after"), "context after conflict should remain");
+    }
+
+    #[test]
+    fn resolve_conflict_theirs_writes_correct_content() {
+        let (dir, repo) = make_repo_with_commit("original\n");
+        let (_, blocks) = write_conflict_file(&dir);
+
+        resolve_conflict_block(&repo, "conflict.txt", &blocks, 0, ConflictSide::Theirs).unwrap();
+
+        let result = fs::read_to_string(dir.path().join("conflict.txt")).unwrap();
+        assert!(!result.contains("ours_line"), "should not contain ours line");
+        assert!(result.contains("theirs_line"), "should contain theirs line");
+        assert!(!result.contains("<<<<<<<"), "conflict markers should be gone");
+    }
+
+    #[test]
+    fn resolve_conflict_both_includes_all_lines() {
+        let (dir, repo) = make_repo_with_commit("original\n");
+        let (_, blocks) = write_conflict_file(&dir);
+
+        resolve_conflict_block(&repo, "conflict.txt", &blocks, 0, ConflictSide::Both).unwrap();
+
+        let result = fs::read_to_string(dir.path().join("conflict.txt")).unwrap();
+        assert!(result.contains("ours_line"), "should contain ours line");
+        assert!(result.contains("theirs_line"), "should contain theirs line");
+        assert!(!result.contains("<<<<<<<"), "conflict markers should be gone");
+    }
+
+    #[test]
+    fn resolve_conflict_second_block() {
+        let (dir, repo) = make_repo_with_commit("original\n");
+        let content = concat!(
+            "<<<<<<< HEAD\na\n=======\nb\n>>>>>>> x\n",
+            "middle\n",
+            "<<<<<<< HEAD\nc\n=======\nd\n>>>>>>> x\n"
+        );
+        fs::write(dir.path().join("conflict.txt"), content).unwrap();
+        let blocks = parse_conflict_markers(content);
+        assert_eq!(blocks.len(), 2);
+
+        // Resolve only the second block with "theirs"
+        resolve_conflict_block(&repo, "conflict.txt", &blocks, 1, ConflictSide::Theirs).unwrap();
+
+        let result = fs::read_to_string(dir.path().join("conflict.txt")).unwrap();
+        assert!(result.contains("d"), "should contain theirs for second block");
+        // First block still has conflict markers
+        assert!(result.contains("<<<<<<<"), "first block conflict markers should remain");
+    }
+
+    #[test]
+    fn resolve_conflict_out_of_range_returns_error() {
+        let (dir, repo) = make_repo_with_commit("original\n");
+        let (_, blocks) = write_conflict_file(&dir);
+
+        let result = resolve_conflict_block(&repo, "conflict.txt", &blocks, 99, ConflictSide::Ours);
+        assert!(result.is_err(), "out-of-range index should return an error");
     }
 }

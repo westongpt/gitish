@@ -15,6 +15,10 @@ pub enum AppEvent {
     Discard,
     DeleteUntracked,
     Commit,
+    // conflict resolution
+    AcceptOurs,
+    AcceptTheirs,
+    AcceptBoth,
     // remote
     Push,
     Pull,
@@ -73,6 +77,9 @@ fn translate_key(key: KeyEvent) -> Option<AppEvent> {
         KeyCode::Char('P') => Some(AppEvent::Push),
         KeyCode::Char('L') => Some(AppEvent::Pull),
         KeyCode::Char('t') => Some(AppEvent::OpenThemePicker),
+        KeyCode::Char('o') => Some(AppEvent::AcceptOurs),
+        KeyCode::Char('i') => Some(AppEvent::AcceptTheirs),
+        KeyCode::Char('b') => Some(AppEvent::AcceptBoth),
         KeyCode::Char('?') => Some(AppEvent::OpenHelp),
         KeyCode::Tab => Some(AppEvent::ToggleFocus),
         KeyCode::Enter => Some(AppEvent::Confirm),
