@@ -3,6 +3,7 @@ mod confirm_dialog;
 mod diff_panel;
 mod file_panel;
 mod layout;
+mod loading_overlay;
 mod theme_picker;
 
 use ratatui::{
@@ -30,6 +31,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
     if matches!(app.mode, crate::app::Mode::Confirming(_)) {
         confirm_dialog::render(f, app);
+    }
+    if matches!(app.mode, crate::app::Mode::Loading(_)) {
+        loading_overlay::render(f, app);
     }
 }
 
