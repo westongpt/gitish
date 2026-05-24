@@ -1,6 +1,6 @@
 use ratatui::{
     style::{Modifier, Style},
-    text::Span,
+    text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState},
     Frame,
 };
@@ -12,11 +12,18 @@ pub fn render(f: &mut Frame, app: &App) {
     let theme = app.current_theme();
     let area = centered_rect(50, 60, f.area());
 
-    let items: Vec<ListItem> = app
+    let mut items: Vec<ListItem> = app
         .themes
         .iter()
         .map(|t| ListItem::new(Span::styled(&t.name, Style::default().fg(theme.base05))))
         .collect();
+
+    let check = if app.transparent { "󰄵 " } else { "󰄱 " };
+    let transparent_label = format!("{check}Use transparent background");
+    items.push(ListItem::new(Line::from(vec![Span::styled(
+        transparent_label,
+        Style::default().fg(theme.base0d),
+    )])));
 
     let mut state = ListState::default();
     state.select(Some(app.theme_picker_cursor));

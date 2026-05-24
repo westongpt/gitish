@@ -406,7 +406,7 @@ impl App {
     }
 
     pub fn picker_down(&mut self) {
-        if self.theme_picker_cursor + 1 < self.themes.len() {
+        if self.theme_picker_cursor + 1 < self.themes.len() + 1 {
             self.theme_picker_cursor += 1;
         }
     }
@@ -418,6 +418,23 @@ impl App {
         let prefs = Preferences { theme: Some(name.clone()), transparent: self.transparent };
         prefs.save(&self.config_dir)?;
         self.status_msg = Some(format!("Theme: {name}"));
+        Ok(())
+    }
+
+    pub fn picker_confirm(&mut self) -> Result<(), AppError> {
+        if self.theme_picker_cursor == self.themes.len() {
+            self.toggle_transparent()?;
+        } else {
+            self.apply_theme()?;
+        }
+        Ok(())
+    }
+
+    pub fn toggle_transparent(&mut self) -> Result<(), AppError> {
+        self.transparent = !self.transparent;
+        let name = self.themes[self.theme_idx].name.clone();
+        let prefs = Preferences { theme: Some(name), transparent: self.transparent };
+        prefs.save(&self.config_dir)?;
         Ok(())
     }
 
@@ -627,7 +644,7 @@ impl App {
         match event {
             AppEvent::MoveUp | AppEvent::PrevHunk => self.picker_up(),
             AppEvent::MoveDown | AppEvent::NextHunk => self.picker_down(),
-            AppEvent::Confirm => self.apply_theme()?,
+            AppEvent::Confirm => self.picker_confirm()?,
             AppEvent::Cancel | AppEvent::Quit => self.mode = Mode::Normal,
             _ => {}
         }
@@ -748,5 +765,59 @@ mod tests {
         // Simulate the run loop consuming the flag
         app.needs_clear = false;
         assert!(!app.needs_clear);
+    }
+
+    #[test]
+    fn picker_down_reaches_transparent_toggle_item() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        let max = app.themes.len();
+        app.theme_picker_cursor = max - 1;
+        app.picker_down();
+        assert_eq!(app.theme_picker_cursor, max, "cursor should reach the transparent toggle item");
+    }
+
+    #[test]
+    fn picker_down_does_not_exceed_transparent_item() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        let max = app.themes.len();
+        app.theme_picker_cursor = max;
+        app.picker_down();
+        assert_eq!(app.theme_picker_cursor, max, "cursor must not go past the transparent toggle item");
+    }
+
+    #[test]
+    fn toggle_transparent_flips_and_persists() {
+        let (_repo, cfg, mut app) = make_test_app();
+        assert!(!app.transparent);
+        app.toggle_transparent().unwrap();
+        assert!(app.transparent);
+
+        let reloaded = crate::config::Preferences::load(cfg.path());
+        assert!(reloaded.transparent, "toggle must persist transparent=true to config.toml");
+
+        app.toggle_transparent().unwrap();
+        assert!(!app.transparent);
+        let reloaded2 = crate::config::Preferences::load(cfg.path());
+        assert!(!reloaded2.transparent, "second toggle must persist transparent=false");
+    }
+
+    #[test]
+    fn picker_confirm_on_transparent_item_toggles_and_stays_in_picker() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.mode = Mode::ThemePicker;
+        app.theme_picker_cursor = app.themes.len();
+        app.picker_confirm().unwrap();
+        assert!(app.transparent, "confirm on transparent item must toggle it on");
+        assert_eq!(app.mode, Mode::ThemePicker, "mode must remain ThemePicker after toggling transparent");
+    }
+
+    #[test]
+    fn picker_confirm_on_theme_item_applies_theme_and_closes() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.mode = Mode::ThemePicker;
+        app.theme_picker_cursor = 0;
+        app.picker_confirm().unwrap();
+        assert_eq!(app.theme_idx, 0);
+        assert_eq!(app.mode, Mode::Normal, "confirm on a theme item must close the picker");
     }
 }
