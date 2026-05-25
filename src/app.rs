@@ -702,6 +702,10 @@ impl App {
             AppEvent::Pull => self.mode = Mode::Loading(LoadingOp::Pull),
             AppEvent::Commit => self.mode = Mode::CommitTitle,
             AppEvent::OpenThemePicker => self.open_theme_picker(),
+            AppEvent::Refresh => {
+                self.refresh()?;
+                self.status_msg = Some("Refreshed".into());
+            }
             _ => {}
         }
         Ok(())
@@ -1528,6 +1532,27 @@ mod tests {
         let (_repo, _cfg, mut app) = make_test_app();
         app.handle_normal(crate::events::AppEvent::Pull).unwrap();
         assert_eq!(app.mode, Mode::Loading(LoadingOp::Pull));
+    }
+
+    #[test]
+    fn handle_normal_refresh_sets_status_msg() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.handle_normal(crate::events::AppEvent::Refresh).unwrap();
+        assert_eq!(app.status_msg.as_deref(), Some("Refreshed"));
+    }
+
+    #[test]
+    fn handle_normal_refresh_sets_needs_clear() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.handle_normal(crate::events::AppEvent::Refresh).unwrap();
+        assert!(app.needs_clear, "refresh must set needs_clear to force a repaint");
+    }
+
+    #[test]
+    fn handle_normal_refresh_stays_in_normal_mode() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.handle_normal(crate::events::AppEvent::Refresh).unwrap();
+        assert_eq!(app.mode, Mode::Normal);
     }
 
     #[test]

@@ -30,8 +30,8 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                 "j/k: nav  o: accept ours  i: accept incoming  b: accept both"
             } else {
                 match app.focus {
-                    crate::app::Focus::FileList => "s: stage  u: unstage  c: commit  ? help  q: quit",
-                    crate::app::Focus::DiffView => "j/k: nav  s: stage  u: unstage  d: discard  ? help",
+                    crate::app::Focus::FileList => "s: stage  u: unstage  r: refresh  c: commit  ? help  q: quit",
+                    crate::app::Focus::DiffView => "j/k: nav  s: stage  u: unstage  d: discard  r: refresh  ? help",
                 }
             };
             (" Commit ", "", hint, theme.base03)

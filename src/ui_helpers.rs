@@ -2,7 +2,7 @@ use std::path::Path;
 
 /// Number of lines in the static help content — must stay in sync with the
 /// help popup in `ui/mod.rs`.
-pub const HELP_CONTENT_LINES: u16 = 30;
+pub const HELP_CONTENT_LINES: u16 = 31;
 
 /// Compute the maximum scroll offset for the help popup given the terminal height.
 pub fn help_max_scroll(terminal_height: u16) -> u16 {
@@ -55,8 +55,8 @@ mod tests {
 
     #[test]
     fn help_max_scroll_nonzero_when_terminal_is_short() {
-        // popup_height = 20 * 80/100 = 16, inner = 14, max_scroll = 30 - 14 = 16
-        assert_eq!(help_max_scroll(20), 16);
+        // popup_height = 20 * 80/100 = 16, inner = 14, max_scroll = 31 - 14 = 17
+        assert_eq!(help_max_scroll(20), 17);
     }
 
     #[test]
