@@ -12,7 +12,7 @@ use crate::git::repo::{
 };
 use crate::git::stage::ConflictSide;
 use crate::git::{commit::create_commit, remote, stage};
-use crate::theme::{all_themes, load_theme_by_name, seed_themes, NamedTheme};
+use crate::theme::{all_themes, seed_themes, ThemeList};
 
 type WorkerMsg = (LoadingOp, Result<RemoteResult, AppError>);
 
@@ -89,8 +89,7 @@ pub struct App {
     pub commit_title: String,
     pub commit_body: String,
     pub status_msg: Option<String>,
-    pub themes: Vec<NamedTheme>,
-    pub theme_idx: usize,
+    pub themes: ThemeList,
     pub theme_picker_cursor: usize,
     pub transparent: bool,
     /// Set by refresh() to force terminal.clear() before the next draw,
@@ -113,14 +112,15 @@ impl App {
         initial_theme: Option<&str>,
     ) -> Result<Self, AppError> {
         seed_themes(&config_dir)?;
-        let themes = all_themes(&config_dir);
+        let mut themes = ThemeList::new(all_themes(&config_dir));
         let (prefs, config_err) = Preferences::load(&config_dir);
 
         let theme_name = initial_theme.or(prefs.theme.as_deref());
-        let theme_idx = theme_name
-            .and_then(|name| load_theme_by_name(&themes, name))
-            .and_then(|nt| themes.iter().position(|t| t.name == nt.name))
-            .unwrap_or(0);
+        if let Some(name) = theme_name {
+            if let Some(idx) = themes.find_idx_by_name(name) {
+                themes.set_current_idx(idx);
+            }
+        }
 
         let files = list_changed_files(&repo)?;
         let (staged_hunks, unstaged_hunks) = load_hunks_for(&repo, files.first());
@@ -140,9 +140,8 @@ impl App {
             commit_title: String::new(),
             commit_body: String::new(),
             status_msg: config_err,
+            theme_picker_cursor: themes.current_idx(),
             themes,
-            theme_idx,
-            theme_picker_cursor: theme_idx,
             transparent: prefs.transparent,
             needs_clear: false,
             help_scroll: 0,
@@ -154,7 +153,7 @@ impl App {
     }
 
     pub fn current_theme(&self) -> &crate::theme::Theme {
-        &self.themes[self.theme_idx].theme
+        &self.themes.current().theme
     }
 
     /// Main content background — transparent if the user opted in.
@@ -467,9 +466,9 @@ impl App {
     }
 
     pub fn apply_theme(&mut self) -> Result<(), AppError> {
-        self.theme_idx = self.theme_picker_cursor;
+        self.themes.set_current_idx(self.theme_picker_cursor);
         self.mode = Mode::Normal;
-        let name = self.themes[self.theme_idx].name.clone();
+        let name = self.themes.current().name.clone();
         let prefs = Preferences { theme: Some(name.clone()), transparent: self.transparent };
         prefs.save(&self.config_dir)?;
         self.status_msg = Some(format!("Theme: {name}"));
@@ -477,7 +476,7 @@ impl App {
     }
 
     pub fn open_theme_picker(&mut self) {
-        self.theme_picker_cursor = self.theme_idx;
+        self.theme_picker_cursor = self.themes.current_idx();
         self.mode = Mode::ThemePicker;
     }
 
@@ -492,7 +491,7 @@ impl App {
 
     pub fn toggle_transparent(&mut self) -> Result<(), AppError> {
         self.transparent = !self.transparent;
-        let name = self.themes[self.theme_idx].name.clone();
+        let name = self.themes.current().name.clone();
         let prefs = Preferences { theme: Some(name), transparent: self.transparent };
         prefs.save(&self.config_dir)?;
         Ok(())
@@ -956,7 +955,7 @@ mod tests {
         app.mode = Mode::ThemePicker;
         app.theme_picker_cursor = 0;
         app.picker_confirm().unwrap();
-        assert_eq!(app.theme_idx, 0);
+        assert_eq!(app.themes.current_idx(), 0);
         assert_eq!(app.mode, Mode::Normal, "confirm on a theme item must close the picker");
     }
 

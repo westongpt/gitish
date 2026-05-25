@@ -150,13 +150,49 @@ pub fn all_themes(config_dir: &Path) -> Vec<NamedTheme> {
     }
 }
 
-pub fn load_theme_by_name<'a>(
-    themes: &'a [NamedTheme],
-    name: &str,
-) -> Option<&'a NamedTheme> {
-    themes
-        .iter()
-        .find(|t| t.name.eq_ignore_ascii_case(name))
+/// A non-empty list of themes with a tracked current index.
+///
+/// The non-empty invariant is enforced at construction: if the supplied `Vec`
+/// is empty the fallback theme is inserted so that indexing is always safe.
+pub struct ThemeList {
+    themes: Vec<NamedTheme>,
+    current_idx: usize,
+}
+
+impl ThemeList {
+    pub fn new(mut themes: Vec<NamedTheme>) -> Self {
+        if themes.is_empty() {
+            themes.push(fallback_theme());
+        }
+        ThemeList { themes, current_idx: 0 }
+    }
+
+    pub fn current(&self) -> &NamedTheme {
+        &self.themes[self.current_idx]
+    }
+
+    pub fn current_idx(&self) -> usize {
+        self.current_idx
+    }
+
+    pub fn set_current_idx(&mut self, idx: usize) {
+        if idx < self.themes.len() {
+            self.current_idx = idx;
+        }
+    }
+
+    pub fn find_idx_by_name(&self, name: &str) -> Option<usize> {
+        self.themes.iter().position(|t| t.name.eq_ignore_ascii_case(name))
+    }
+
+    pub fn len(&self) -> usize {
+        self.themes.len()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &NamedTheme> {
+        self.themes.iter()
+    }
+
 }
 
 pub fn seed_themes(config_dir: &Path) -> Result<(), AppError> {
@@ -217,36 +253,58 @@ mod tests {
     }
 
     #[test]
-    fn load_theme_by_name_exact_match() {
-        let themes = vec![NamedTheme {
+    fn find_idx_by_name_exact_match() {
+        let list = ThemeList::new(vec![NamedTheme {
             name: "Catppuccin Mocha".into(),
             theme: fallback_theme().theme,
-        }];
-        assert!(load_theme_by_name(&themes, "Catppuccin Mocha").is_some());
+        }]);
+        assert_eq!(list.find_idx_by_name("Catppuccin Mocha"), Some(0));
     }
 
     #[test]
-    fn load_theme_by_name_case_insensitive() {
-        let themes = vec![NamedTheme {
+    fn find_idx_by_name_case_insensitive() {
+        let list = ThemeList::new(vec![NamedTheme {
             name: "Catppuccin Mocha".into(),
             theme: fallback_theme().theme,
-        }];
-        assert!(load_theme_by_name(&themes, "catppuccin mocha").is_some());
-        assert!(load_theme_by_name(&themes, "CATPPUCCIN MOCHA").is_some());
+        }]);
+        assert!(list.find_idx_by_name("catppuccin mocha").is_some());
+        assert!(list.find_idx_by_name("CATPPUCCIN MOCHA").is_some());
     }
 
     #[test]
-    fn load_theme_by_name_not_found_returns_none() {
-        let themes = vec![NamedTheme {
+    fn find_idx_by_name_not_found_returns_none() {
+        let list = ThemeList::new(vec![NamedTheme {
             name: "Foo".into(),
             theme: fallback_theme().theme,
-        }];
-        assert!(load_theme_by_name(&themes, "Bar").is_none());
+        }]);
+        assert!(list.find_idx_by_name("Bar").is_none());
     }
 
     #[test]
-    fn load_theme_by_name_empty_list_returns_none() {
-        assert!(load_theme_by_name(&[], "anything").is_none());
+    fn theme_list_new_with_empty_vec_inserts_fallback() {
+        let list = ThemeList::new(vec![]);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list.current().name, "Terminal Default");
+    }
+
+    #[test]
+    fn theme_list_set_current_idx_clamps_to_valid_range() {
+        let list = ThemeList::new(vec![NamedTheme {
+            name: "A".into(),
+            theme: fallback_theme().theme,
+        }]);
+        let mut list = list;
+        list.set_current_idx(99);
+        assert_eq!(list.current_idx(), 0, "out-of-bounds idx must not be applied");
+    }
+
+    #[test]
+    fn theme_list_current_returns_initial_theme() {
+        let list = ThemeList::new(vec![NamedTheme {
+            name: "Only".into(),
+            theme: fallback_theme().theme,
+        }]);
+        assert_eq!(list.current().name, "Only");
     }
 
     #[test]
