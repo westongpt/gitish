@@ -78,8 +78,14 @@ fn render_help_popup(f: &mut Frame, app: &App) {
         Line::from(vec![Span::styled("  q           ", key), Span::styled("quit", desc)]),
     ];
 
+    let total_lines = lines.len() as u16;
+    let inner_height = area.height.saturating_sub(2); // subtract borders
+    let max_scroll = total_lines.saturating_sub(inner_height);
+    let scroll = app.help_scroll.min(max_scroll);
+
     let paragraph = Paragraph::new(Text::from(lines))
         .wrap(Wrap { trim: false })
+        .scroll((scroll, 0))
         .block(
             Block::default()
                 .borders(Borders::ALL)
@@ -87,6 +93,10 @@ fn render_help_popup(f: &mut Frame, app: &App) {
                 .title(Span::styled(
                     " Help ",
                     Style::default().fg(theme.base0d).add_modifier(Modifier::BOLD),
+                ))
+                .title_bottom(Span::styled(
+                    " j/k to scroll ",
+                    Style::default().fg(theme.base03),
                 ))
                 .style(Style::default().bg(app.bg_panel())),
         );

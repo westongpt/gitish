@@ -87,6 +87,7 @@ pub struct App {
     /// Set by refresh() to force terminal.clear() before the next draw,
     /// preventing stale cells when content shrinks (e.g. after a commit).
     pub needs_clear: bool,
+    pub help_scroll: u16,
     config_dir: std::path::PathBuf,
 }
 
@@ -129,6 +130,7 @@ impl App {
             theme_picker_cursor: theme_idx,
             transparent: prefs.transparent,
             needs_clear: false,
+            help_scroll: 0,
             config_dir,
         })
     }
@@ -533,6 +535,8 @@ impl App {
     fn handle_help(&mut self, event: AppEvent) -> Result<(), AppError> {
         match event {
             AppEvent::Quit | AppEvent::Cancel | AppEvent::OpenHelp => self.mode = Mode::Normal,
+            AppEvent::MoveDown => self.help_scroll = self.help_scroll.saturating_add(1),
+            AppEvent::MoveUp => self.help_scroll = self.help_scroll.saturating_sub(1),
             _ => {}
         }
         Ok(())
@@ -541,7 +545,10 @@ impl App {
     fn handle_normal(&mut self, event: AppEvent) -> Result<(), AppError> {
         match event {
             AppEvent::Quit => self.mode = Mode::Quitting,
-            AppEvent::OpenHelp => self.mode = Mode::Help,
+            AppEvent::OpenHelp => {
+                self.help_scroll = 0;
+                self.mode = Mode::Help;
+            }
             AppEvent::ToggleFocus => {
                 self.focus = match self.focus {
                     Focus::FileList => Focus::DiffView,
@@ -821,5 +828,44 @@ mod tests {
         app.picker_confirm().unwrap();
         assert_eq!(app.theme_idx, 0);
         assert_eq!(app.mode, Mode::Normal, "confirm on a theme item must close the picker");
+    }
+
+    #[test]
+    fn help_scroll_starts_at_zero() {
+        let (_repo, _cfg, app) = make_test_app();
+        assert_eq!(app.help_scroll, 0);
+    }
+
+    #[test]
+    fn help_move_down_increments_scroll() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.mode = Mode::Help;
+        app.handle_help(crate::events::AppEvent::MoveDown).unwrap();
+        assert_eq!(app.help_scroll, 1);
+    }
+
+    #[test]
+    fn help_move_up_does_not_underflow() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.mode = Mode::Help;
+        app.handle_help(crate::events::AppEvent::MoveUp).unwrap();
+        assert_eq!(app.help_scroll, 0, "scroll must not go below zero");
+    }
+
+    #[test]
+    fn help_scroll_resets_on_open() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.help_scroll = 5;
+        app.handle_normal(crate::events::AppEvent::OpenHelp).unwrap();
+        assert_eq!(app.help_scroll, 0, "opening help must reset scroll to top");
+        assert_eq!(app.mode, Mode::Help);
+    }
+
+    #[test]
+    fn help_cancel_closes_help() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.mode = Mode::Help;
+        app.handle_help(crate::events::AppEvent::Cancel).unwrap();
+        assert_eq!(app.mode, Mode::Normal);
     }
 }
