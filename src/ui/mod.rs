@@ -15,18 +15,7 @@ use ratatui::{
 
 use crate::app::App;
 
-/// Number of lines in the static help content — must stay in sync with the
-/// `lines` vec in `render_help_popup`.
-pub const HELP_CONTENT_LINES: u16 = 30;
-
-/// Compute the maximum scroll offset for the help popup given the terminal height.
-/// Mirrors the 80% / border math from `render_help_popup` so callers outside the
-/// render path can clamp `help_scroll` without needing the actual frame area.
-pub fn help_max_scroll(terminal_height: u16) -> u16 {
-    let popup_height = terminal_height * 80 / 100;
-    let inner_height = popup_height.saturating_sub(2);
-    HELP_CONTENT_LINES.saturating_sub(inner_height)
-}
+pub use crate::ui_helpers::{HELP_CONTENT_LINES, help_max_scroll};
 
 pub fn draw(f: &mut Frame, app: &App) {
     let layout = layout::split_layout(f.area());

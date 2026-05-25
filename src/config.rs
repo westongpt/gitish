@@ -38,3 +38,55 @@ pub fn config_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
         .join("gitish")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn load_returns_default_when_file_missing() {
+        let dir = TempDir::new().unwrap();
+        let prefs = Preferences::load(dir.path());
+        assert!(prefs.theme.is_none());
+        assert!(!prefs.transparent);
+    }
+
+    #[test]
+    fn save_then_load_roundtrip() {
+        let dir = TempDir::new().unwrap();
+        let prefs = Preferences {
+            theme: Some("Catppuccin Mocha".into()),
+            transparent: true,
+        };
+        prefs.save(dir.path()).unwrap();
+        let loaded = Preferences::load(dir.path());
+        assert_eq!(loaded.theme.as_deref(), Some("Catppuccin Mocha"));
+        assert!(loaded.transparent);
+    }
+
+    #[test]
+    fn save_transparent_false_roundtrips() {
+        let dir = TempDir::new().unwrap();
+        let prefs = Preferences { theme: None, transparent: false };
+        prefs.save(dir.path()).unwrap();
+        let loaded = Preferences::load(dir.path());
+        assert!(loaded.theme.is_none());
+        assert!(!loaded.transparent);
+    }
+
+    #[test]
+    fn load_returns_default_on_invalid_toml() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("config.toml"), "not valid toml !!!").unwrap();
+        let prefs = Preferences::load(dir.path());
+        assert!(prefs.theme.is_none());
+        assert!(!prefs.transparent);
+    }
+
+    #[test]
+    fn config_dir_returns_gitish_subdir() {
+        let dir = config_dir();
+        assert!(dir.ends_with("gitish"));
+    }
+}

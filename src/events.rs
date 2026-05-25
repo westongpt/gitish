@@ -106,3 +106,128 @@ fn translate_key_input(key: KeyEvent) -> Option<AppEvent> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn ctrl(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::CONTROL)
+    }
+
+    #[test]
+    fn translate_key_quit() {
+        assert_eq!(translate_key(key(KeyCode::Char('q'))), Some(AppEvent::Quit));
+    }
+
+    #[test]
+    fn translate_key_ctrl_c_quits() {
+        assert_eq!(translate_key(ctrl(KeyCode::Char('c'))), Some(AppEvent::Quit));
+    }
+
+    #[test]
+    fn translate_key_ctrl_q_quits() {
+        assert_eq!(translate_key(ctrl(KeyCode::Char('q'))), Some(AppEvent::Quit));
+    }
+
+    #[test]
+    fn translate_key_ctrl_other_is_none() {
+        assert_eq!(translate_key(ctrl(KeyCode::Char('x'))), None);
+    }
+
+    #[test]
+    fn translate_key_move_down() {
+        assert_eq!(translate_key(key(KeyCode::Char('j'))), Some(AppEvent::MoveDown));
+        assert_eq!(translate_key(key(KeyCode::Down)), Some(AppEvent::MoveDown));
+    }
+
+    #[test]
+    fn translate_key_move_up() {
+        assert_eq!(translate_key(key(KeyCode::Char('k'))), Some(AppEvent::MoveUp));
+        assert_eq!(translate_key(key(KeyCode::Up)), Some(AppEvent::MoveUp));
+    }
+
+    #[test]
+    fn translate_key_hunk_navigation() {
+        assert_eq!(translate_key(key(KeyCode::Char('n'))), Some(AppEvent::NextHunk));
+        assert_eq!(translate_key(key(KeyCode::Char('p'))), Some(AppEvent::PrevHunk));
+    }
+
+    #[test]
+    fn translate_key_staging() {
+        assert_eq!(translate_key(key(KeyCode::Char('s'))), Some(AppEvent::Stage));
+        assert_eq!(translate_key(key(KeyCode::Char('u'))), Some(AppEvent::Unstage));
+        assert_eq!(translate_key(key(KeyCode::Char('d'))), Some(AppEvent::Discard));
+    }
+
+    #[test]
+    fn translate_key_delete_untracked() {
+        assert_eq!(translate_key(key(KeyCode::Char('X'))), Some(AppEvent::DeleteUntracked));
+    }
+
+    #[test]
+    fn translate_key_commit_and_remote() {
+        assert_eq!(translate_key(key(KeyCode::Char('c'))), Some(AppEvent::Commit));
+        assert_eq!(translate_key(key(KeyCode::Char('P'))), Some(AppEvent::Push));
+        assert_eq!(translate_key(key(KeyCode::Char('L'))), Some(AppEvent::Pull));
+    }
+
+    #[test]
+    fn translate_key_conflict_resolution() {
+        assert_eq!(translate_key(key(KeyCode::Char('o'))), Some(AppEvent::AcceptOurs));
+        assert_eq!(translate_key(key(KeyCode::Char('i'))), Some(AppEvent::AcceptTheirs));
+        assert_eq!(translate_key(key(KeyCode::Char('b'))), Some(AppEvent::AcceptBoth));
+    }
+
+    #[test]
+    fn translate_key_structural() {
+        assert_eq!(translate_key(key(KeyCode::Tab)), Some(AppEvent::ToggleFocus));
+        assert_eq!(translate_key(key(KeyCode::Enter)), Some(AppEvent::Confirm));
+        assert_eq!(translate_key(key(KeyCode::Esc)), Some(AppEvent::Cancel));
+        assert_eq!(translate_key(key(KeyCode::Backspace)), Some(AppEvent::Backspace));
+    }
+
+    #[test]
+    fn translate_key_theme_and_help() {
+        assert_eq!(translate_key(key(KeyCode::Char('t'))), Some(AppEvent::OpenThemePicker));
+        assert_eq!(translate_key(key(KeyCode::Char('?'))), Some(AppEvent::OpenHelp));
+    }
+
+    #[test]
+    fn translate_key_unknown_is_none() {
+        assert_eq!(translate_key(key(KeyCode::F(1))), None);
+    }
+
+    #[test]
+    fn translate_key_input_passthrough_char() {
+        assert_eq!(translate_key_input(key(KeyCode::Char('a'))), Some(AppEvent::Char('a')));
+        assert_eq!(translate_key_input(key(KeyCode::Char('z'))), Some(AppEvent::Char('z')));
+    }
+
+    #[test]
+    fn translate_key_input_structural_keys() {
+        assert_eq!(translate_key_input(key(KeyCode::Enter)), Some(AppEvent::Confirm));
+        assert_eq!(translate_key_input(key(KeyCode::Esc)), Some(AppEvent::Cancel));
+        assert_eq!(translate_key_input(key(KeyCode::Backspace)), Some(AppEvent::Backspace));
+    }
+
+    #[test]
+    fn translate_key_input_ctrl_c_quits() {
+        assert_eq!(translate_key_input(ctrl(KeyCode::Char('c'))), Some(AppEvent::Quit));
+    }
+
+    #[test]
+    fn translate_key_input_ctrl_other_is_none() {
+        assert_eq!(translate_key_input(ctrl(KeyCode::Char('s'))), None);
+    }
+
+    #[test]
+    fn translate_key_input_unknown_is_none() {
+        assert_eq!(translate_key_input(key(KeyCode::F(5))), None);
+    }
+}

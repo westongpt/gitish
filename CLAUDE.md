@@ -68,6 +68,10 @@ src/
 
 ---
 
+## Rules
+- We require 80% code coverage, Strive for 100%. We leave that 20% because we don't want to add tests for low value areas such as asserting static values.
+- Keep README.md and help command updated. When adding new features, update the README.md and the help command.
+
 <!-- ============================================================
      FEATURE LIST — paste your wishlist below this line
      ============================================================ -->
