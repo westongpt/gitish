@@ -66,8 +66,12 @@ fn main() -> Result<(), AppError> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new(repo, config_dir, None)?;
-    if cli.open == Some(InitialMode::ThemePicker) {
-        app.open_theme_picker();
+    match cli.open {
+        Some(InitialMode::ThemePicker) => app.open_theme_picker(),
+        Some(InitialMode::Spinner) => {
+            app.mode = crate::app::Mode::Loading(crate::app::LoadingOp::Demo);
+        }
+        None => {}
     }
     app.run(&mut terminal)?;
 

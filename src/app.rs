@@ -42,6 +42,9 @@ pub enum LoadingOp {
     Push,
     Pull,
     Commit,
+    /// Dummy op that shows the spinner overlay without doing any real work.
+    /// Used with `--open spinner` for screenshots and demos.
+    Demo,
 }
 
 impl LoadingOp {
@@ -50,6 +53,7 @@ impl LoadingOp {
             LoadingOp::Push => "Pushing…",
             LoadingOp::Pull => "Pulling…",
             LoadingOp::Commit => "Committing…",
+            LoadingOp::Demo => "Working…",
         }
     }
 }
@@ -403,7 +407,9 @@ impl App {
             let result = match op {
                 LoadingOp::Push => remote::push_in_dir(workdir),
                 LoadingOp::Pull => remote::pull_in_dir(workdir),
-                LoadingOp::Commit => unreachable!("commit is handled synchronously"),
+                LoadingOp::Commit | LoadingOp::Demo => {
+                    unreachable!("only Push/Pull reach spawn_remote_worker")
+                }
             };
             let _ = tx.send((op, result));
         });
@@ -438,7 +444,9 @@ impl App {
                         self.status_msg = Some(format!("Pull failed: {}", r.output));
                     }
                 }
-                LoadingOp::Commit => unreachable!("commit result handled synchronously"),
+                LoadingOp::Commit | LoadingOp::Demo => {
+                    unreachable!("only Push/Pull produce worker results")
+                }
             },
         }
         Ok(())
@@ -585,6 +593,11 @@ impl App {
                         }
                         // Fall through to event polling so inputs are drained while
                         // the worker thread runs.
+                    }
+                    LoadingOp::Demo => {
+                        // Spinner-only demo mode (--open spinner). Tick the spinner
+                        // each frame and stay in Loading until the user quits.
+                        self.spinner_tick = self.spinner_tick.wrapping_add(1);
                     }
                 }
             }
