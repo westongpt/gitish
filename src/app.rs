@@ -1091,4 +1091,492 @@ mod tests {
         assert_eq!(app.mode, Mode::Normal, "empty-title commit must still exit Loading");
         assert!(app.status_msg.is_some(), "must set an error message for empty title");
     }
+
+    // ── PendingAction ─────────────────────────────────────────────────────
+
+    #[test]
+    fn pending_action_prompt_contains_path() {
+        let action = PendingAction::DeleteUntracked("foo/bar.rs".into());
+        assert!(action.prompt().contains("foo/bar.rs"));
+    }
+
+    // ── bg helpers ────────────────────────────────────────────────────────
+
+    #[test]
+    fn bg_main_is_reset_when_transparent() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.transparent = true;
+        assert_eq!(app.bg_main(), ratatui::style::Color::Reset);
+    }
+
+    #[test]
+    fn bg_panel_is_reset_when_transparent() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.transparent = true;
+        assert_eq!(app.bg_panel(), ratatui::style::Color::Reset);
+    }
+
+    #[test]
+    fn bg_main_is_theme_color_when_not_transparent() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.transparent = false;
+        let expected = app.current_theme().base00;
+        assert_eq!(app.bg_main(), expected);
+    }
+
+    // ── total_hunks / selected_hunk ───────────────────────────────────────
+
+    #[test]
+    fn total_hunks_is_sum_of_staged_and_unstaged() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        let make_hunk = || crate::git::repo::Hunk {
+            header: "@@ -1,1 +1,1 @@".into(),
+            lines: vec![],
+            old_start: 1,
+            old_lines: 1,
+            new_start: 1,
+            new_lines: 1,
+        };
+        app.staged_hunks = vec![make_hunk(), make_hunk()];
+        app.unstaged_hunks = vec![make_hunk()];
+        assert_eq!(app.total_hunks(), 3);
+    }
+
+    #[test]
+    fn selected_hunk_none_when_no_hunks() {
+        let (_repo, _cfg, app) = make_test_app();
+        assert!(app.selected_hunk().is_none());
+    }
+
+    #[test]
+    fn selected_hunk_returns_staged_first() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        let make_hunk = |header: &str| crate::git::repo::Hunk {
+            header: header.into(),
+            lines: vec![],
+            old_start: 1,
+            old_lines: 1,
+            new_start: 1,
+            new_lines: 1,
+        };
+        app.staged_hunks = vec![make_hunk("staged")];
+        app.unstaged_hunks = vec![make_hunk("unstaged")];
+        app.hunk_cursor = 0;
+        let (hunk, is_staged) = app.selected_hunk().unwrap();
+        assert_eq!(hunk.header, "staged");
+        assert!(is_staged);
+    }
+
+    #[test]
+    fn selected_hunk_returns_unstaged_after_staged() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        let make_hunk = |header: &str| crate::git::repo::Hunk {
+            header: header.into(),
+            lines: vec![],
+            old_start: 1,
+            old_lines: 1,
+            new_start: 1,
+            new_lines: 1,
+        };
+        app.staged_hunks = vec![make_hunk("staged")];
+        app.unstaged_hunks = vec![make_hunk("unstaged")];
+        app.hunk_cursor = 1;
+        let (hunk, is_staged) = app.selected_hunk().unwrap();
+        assert_eq!(hunk.header, "unstaged");
+        assert!(!is_staged);
+    }
+
+    // ── is_file_conflicted ────────────────────────────────────────────────
+
+    #[test]
+    fn is_file_conflicted_false_when_no_files() {
+        let (_repo, _cfg, app) = make_test_app();
+        assert!(!app.is_file_conflicted());
+    }
+
+    // ── hunk navigation ───────────────────────────────────────────────────
+
+    #[test]
+    fn move_hunk_up_does_not_underflow() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.hunk_cursor = 0;
+        app.move_hunk_up();
+        assert_eq!(app.hunk_cursor, 0);
+    }
+
+    #[test]
+    fn move_hunk_down_does_not_exceed_total() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.move_hunk_down();
+        assert_eq!(app.hunk_cursor, 0);
+    }
+
+    #[test]
+    fn move_hunk_down_increments_within_bounds() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        let make_hunk = || crate::git::repo::Hunk {
+            header: "h".into(),
+            lines: vec![],
+            old_start: 1,
+            old_lines: 1,
+            new_start: 1,
+            new_lines: 1,
+        };
+        app.unstaged_hunks = vec![make_hunk(), make_hunk()];
+        app.move_hunk_down();
+        assert_eq!(app.hunk_cursor, 1);
+        app.move_hunk_down();
+        assert_eq!(app.hunk_cursor, 1, "must not exceed total_hunks - 1");
+    }
+
+    // ── file navigation ───────────────────────────────────────────────────
+
+    #[test]
+    fn move_file_up_does_not_underflow() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.move_file_up();
+        assert_eq!(app.file_cursor, 0);
+    }
+
+    #[test]
+    fn move_file_down_does_not_exceed_len() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.move_file_down();
+        assert_eq!(app.file_cursor, 0);
+    }
+
+    // ── conflict navigation ───────────────────────────────────────────────
+
+    #[test]
+    fn move_conflict_up_does_not_underflow() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.move_conflict_up();
+        assert_eq!(app.conflict_cursor, 0);
+    }
+
+    #[test]
+    fn move_conflict_down_does_not_exceed_len() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.move_conflict_down();
+        assert_eq!(app.conflict_cursor, 0);
+    }
+
+    // ── delete_untracked_current guards ──────────────────────────────────
+
+    #[test]
+    fn delete_untracked_current_no_op_when_no_files() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.delete_untracked_current();
+        assert!(matches!(app.mode, Mode::Normal));
+    }
+
+    // ── discard_current guards ────────────────────────────────────────────
+
+    #[test]
+    fn discard_current_no_op_when_no_hunks() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.discard_current().unwrap();
+        assert!(app.status_msg.is_none());
+    }
+
+    #[test]
+    fn discard_current_staged_hunk_sets_status() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.files = vec![crate::git::repo::ChangedFile {
+            path: "fake.rs".into(),
+            status: crate::git::repo::FileStatus::Modified,
+            staged: false,
+            unstaged: true,
+        }];
+        app.staged_hunks = vec![crate::git::repo::Hunk {
+            header: "h".into(),
+            lines: vec![],
+            old_start: 1,
+            old_lines: 1,
+            new_start: 1,
+            new_lines: 1,
+        }];
+        app.hunk_cursor = 0;
+        app.discard_current().unwrap();
+        assert_eq!(
+            app.status_msg.as_deref(),
+            Some("Unstage the hunk first to discard it")
+        );
+    }
+
+    // ── handle_commit_title ───────────────────────────────────────────────
+
+    #[test]
+    fn commit_title_char_appends() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.handle_commit_title(crate::events::AppEvent::Char('f')).unwrap();
+        app.handle_commit_title(crate::events::AppEvent::Char('o')).unwrap();
+        assert_eq!(app.commit_title, "fo");
+    }
+
+    #[test]
+    fn commit_title_backspace_removes_last() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.commit_title = "ab".into();
+        app.handle_commit_title(crate::events::AppEvent::Backspace).unwrap();
+        assert_eq!(app.commit_title, "a");
+    }
+
+    #[test]
+    fn commit_title_confirm_transitions_to_body() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.mode = Mode::CommitTitle;
+        app.handle_commit_title(crate::events::AppEvent::Confirm).unwrap();
+        assert_eq!(app.mode, Mode::CommitBody);
+    }
+
+    #[test]
+    fn commit_title_cancel_clears_and_returns_to_normal() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.commit_title = "work in progress".into();
+        app.mode = Mode::CommitTitle;
+        app.handle_commit_title(crate::events::AppEvent::Cancel).unwrap();
+        assert_eq!(app.mode, Mode::Normal);
+        assert!(app.commit_title.is_empty());
+    }
+
+    // ── handle_commit_body ────────────────────────────────────────────────
+
+    #[test]
+    fn commit_body_char_appends() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.handle_commit_body(crate::events::AppEvent::Char('x')).unwrap();
+        assert_eq!(app.commit_body, "x");
+    }
+
+    #[test]
+    fn commit_body_backspace_removes_last() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.commit_body = "hello".into();
+        app.handle_commit_body(crate::events::AppEvent::Backspace).unwrap();
+        assert_eq!(app.commit_body, "hell");
+    }
+
+    #[test]
+    fn commit_body_confirm_transitions_to_loading() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.mode = Mode::CommitBody;
+        app.handle_commit_body(crate::events::AppEvent::Confirm).unwrap();
+        assert_eq!(app.mode, Mode::Loading(LoadingOp::Commit));
+    }
+
+    #[test]
+    fn commit_body_cancel_returns_to_normal() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.mode = Mode::CommitBody;
+        app.handle_commit_body(crate::events::AppEvent::Cancel).unwrap();
+        assert_eq!(app.mode, Mode::Normal);
+    }
+
+    // ── handle_confirming ─────────────────────────────────────────────────
+
+    #[test]
+    fn confirming_cancel_sets_cancelled_status() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        let action = PendingAction::DeleteUntracked("x".into());
+        app.mode = Mode::Confirming(action.clone());
+        app.handle_confirming(crate::events::AppEvent::Cancel, action).unwrap();
+        assert_eq!(app.mode, Mode::Normal);
+        assert_eq!(app.status_msg.as_deref(), Some("Cancelled"));
+    }
+
+    #[test]
+    fn confirming_n_sets_cancelled_status() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        let action = PendingAction::DeleteUntracked("x".into());
+        app.handle_confirming(crate::events::AppEvent::Char('n'), action).unwrap();
+        assert_eq!(app.mode, Mode::Normal);
+        assert_eq!(app.status_msg.as_deref(), Some("Cancelled"));
+    }
+
+    #[test]
+    fn confirming_uppercase_n_sets_cancelled_status() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        let action = PendingAction::DeleteUntracked("x".into());
+        app.handle_confirming(crate::events::AppEvent::Char('N'), action).unwrap();
+        assert_eq!(app.mode, Mode::Normal);
+        assert_eq!(app.status_msg.as_deref(), Some("Cancelled"));
+    }
+
+    // ── handle_theme_picker ───────────────────────────────────────────────
+
+    #[test]
+    fn theme_picker_move_up_decrements_cursor() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.theme_picker_cursor = 1;
+        app.handle_theme_picker(crate::events::AppEvent::MoveUp).unwrap();
+        assert_eq!(app.theme_picker_cursor, 0);
+    }
+
+    #[test]
+    fn theme_picker_move_down_increments_cursor() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.theme_picker_cursor = 0;
+        app.handle_theme_picker(crate::events::AppEvent::MoveDown).unwrap();
+        assert_eq!(app.theme_picker_cursor, 1);
+    }
+
+    #[test]
+    fn theme_picker_prev_hunk_moves_up() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.theme_picker_cursor = 2;
+        app.handle_theme_picker(crate::events::AppEvent::PrevHunk).unwrap();
+        assert_eq!(app.theme_picker_cursor, 1);
+    }
+
+    #[test]
+    fn theme_picker_next_hunk_moves_down() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.theme_picker_cursor = 0;
+        app.handle_theme_picker(crate::events::AppEvent::NextHunk).unwrap();
+        assert_eq!(app.theme_picker_cursor, 1);
+    }
+
+    #[test]
+    fn theme_picker_cancel_returns_to_normal() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.mode = Mode::ThemePicker;
+        app.handle_theme_picker(crate::events::AppEvent::Cancel).unwrap();
+        assert_eq!(app.mode, Mode::Normal);
+    }
+
+    #[test]
+    fn theme_picker_quit_returns_to_normal() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.mode = Mode::ThemePicker;
+        app.handle_theme_picker(crate::events::AppEvent::Quit).unwrap();
+        assert_eq!(app.mode, Mode::Normal);
+    }
+
+    // ── handle_normal ─────────────────────────────────────────────────────
+
+    #[test]
+    fn handle_normal_quit_sets_quitting() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.handle_normal(crate::events::AppEvent::Quit).unwrap();
+        assert_eq!(app.mode, Mode::Quitting);
+    }
+
+    #[test]
+    fn handle_normal_commit_event_sets_commit_title_mode() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.handle_normal(crate::events::AppEvent::Commit).unwrap();
+        assert_eq!(app.mode, Mode::CommitTitle);
+    }
+
+    #[test]
+    fn handle_normal_toggle_focus_file_to_diff() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        assert_eq!(app.focus, Focus::FileList);
+        app.handle_normal(crate::events::AppEvent::ToggleFocus).unwrap();
+        assert_eq!(app.focus, Focus::DiffView);
+    }
+
+    #[test]
+    fn handle_normal_toggle_focus_diff_to_file() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.focus = Focus::DiffView;
+        app.handle_normal(crate::events::AppEvent::ToggleFocus).unwrap();
+        assert_eq!(app.focus, Focus::FileList);
+    }
+
+    #[test]
+    fn handle_normal_open_theme_picker() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.handle_normal(crate::events::AppEvent::OpenThemePicker).unwrap();
+        assert_eq!(app.mode, Mode::ThemePicker);
+    }
+
+    #[test]
+    fn handle_normal_push_enters_loading() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.handle_normal(crate::events::AppEvent::Push).unwrap();
+        assert_eq!(app.mode, Mode::Loading(LoadingOp::Push));
+    }
+
+    #[test]
+    fn handle_normal_pull_enters_loading() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.handle_normal(crate::events::AppEvent::Pull).unwrap();
+        assert_eq!(app.mode, Mode::Loading(LoadingOp::Pull));
+    }
+
+    #[test]
+    fn handle_normal_stage_no_op_when_no_files() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.handle_normal(crate::events::AppEvent::Stage).unwrap();
+        assert!(app.status_msg.is_none());
+    }
+
+    #[test]
+    fn handle_normal_unstage_no_op_when_no_files() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.handle_normal(crate::events::AppEvent::Unstage).unwrap();
+        assert!(app.status_msg.is_none());
+    }
+
+    #[test]
+    fn handle_normal_discard_no_op_when_no_hunks() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.handle_normal(crate::events::AppEvent::Discard).unwrap();
+        assert!(app.status_msg.is_none());
+    }
+
+    #[test]
+    fn handle_normal_move_up_file_list_clamps() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.focus = Focus::FileList;
+        app.handle_normal(crate::events::AppEvent::MoveUp).unwrap();
+        assert_eq!(app.file_cursor, 0);
+    }
+
+    #[test]
+    fn handle_normal_move_down_file_list_clamps() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.focus = Focus::FileList;
+        app.handle_normal(crate::events::AppEvent::MoveDown).unwrap();
+        assert_eq!(app.file_cursor, 0);
+    }
+
+    #[test]
+    fn handle_normal_move_up_diff_view_clamps() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.focus = Focus::DiffView;
+        app.handle_normal(crate::events::AppEvent::MoveUp).unwrap();
+        assert_eq!(app.hunk_cursor, 0);
+    }
+
+    #[test]
+    fn handle_normal_move_down_diff_view_clamps() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.focus = Focus::DiffView;
+        app.handle_normal(crate::events::AppEvent::MoveDown).unwrap();
+        assert_eq!(app.hunk_cursor, 0);
+    }
+
+    #[test]
+    fn handle_normal_next_hunk_clamps() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.handle_normal(crate::events::AppEvent::NextHunk).unwrap();
+        assert_eq!(app.hunk_cursor, 0);
+    }
+
+    #[test]
+    fn handle_normal_prev_hunk_clamps() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.handle_normal(crate::events::AppEvent::PrevHunk).unwrap();
+        assert_eq!(app.hunk_cursor, 0);
+    }
+
+    // ── LoadingOp::Demo label ─────────────────────────────────────────────
+
+    #[test]
+    fn loading_op_demo_label_is_non_empty() {
+        assert!(!LoadingOp::Demo.label().is_empty());
+    }
 }

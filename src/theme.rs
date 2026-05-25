@@ -170,3 +170,141 @@ pub fn seed_themes(config_dir: &Path) -> Result<(), AppError> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn parse_hex_valid_lowercase() {
+        assert_eq!(parse_hex("1e1e2e"), Some(Color::Rgb(0x1e, 0x1e, 0x2e)));
+    }
+
+    #[test]
+    fn parse_hex_with_leading_hash() {
+        assert_eq!(parse_hex("#cdd6f4"), Some(Color::Rgb(0xcd, 0xd6, 0xf4)));
+    }
+
+    #[test]
+    fn parse_hex_all_zeros() {
+        assert_eq!(parse_hex("000000"), Some(Color::Rgb(0, 0, 0)));
+    }
+
+    #[test]
+    fn parse_hex_all_ff() {
+        assert_eq!(parse_hex("ffffff"), Some(Color::Rgb(255, 255, 255)));
+    }
+
+    #[test]
+    fn parse_hex_too_short_returns_none() {
+        assert!(parse_hex("ff00").is_none());
+    }
+
+    #[test]
+    fn parse_hex_too_long_returns_none() {
+        assert!(parse_hex("ff0000ff").is_none());
+    }
+
+    #[test]
+    fn parse_hex_invalid_chars_returns_none() {
+        assert!(parse_hex("gggggg").is_none());
+    }
+
+    #[test]
+    fn fallback_theme_name_is_terminal_default() {
+        assert_eq!(fallback_theme().name, "Terminal Default");
+    }
+
+    #[test]
+    fn load_theme_by_name_exact_match() {
+        let themes = vec![NamedTheme {
+            name: "Catppuccin Mocha".into(),
+            theme: fallback_theme().theme,
+        }];
+        assert!(load_theme_by_name(&themes, "Catppuccin Mocha").is_some());
+    }
+
+    #[test]
+    fn load_theme_by_name_case_insensitive() {
+        let themes = vec![NamedTheme {
+            name: "Catppuccin Mocha".into(),
+            theme: fallback_theme().theme,
+        }];
+        assert!(load_theme_by_name(&themes, "catppuccin mocha").is_some());
+        assert!(load_theme_by_name(&themes, "CATPPUCCIN MOCHA").is_some());
+    }
+
+    #[test]
+    fn load_theme_by_name_not_found_returns_none() {
+        let themes = vec![NamedTheme {
+            name: "Foo".into(),
+            theme: fallback_theme().theme,
+        }];
+        assert!(load_theme_by_name(&themes, "Bar").is_none());
+    }
+
+    #[test]
+    fn load_theme_by_name_empty_list_returns_none() {
+        assert!(load_theme_by_name(&[], "anything").is_none());
+    }
+
+    #[test]
+    fn all_themes_returns_fallback_when_no_themes_dir() {
+        let dir = TempDir::new().unwrap();
+        let themes = all_themes(dir.path());
+        assert_eq!(themes.len(), 1);
+        assert_eq!(themes[0].name, "Terminal Default");
+    }
+
+    #[test]
+    fn all_themes_returns_fallback_when_themes_dir_is_empty() {
+        let dir = TempDir::new().unwrap();
+        std::fs::create_dir(dir.path().join("themes")).unwrap();
+        let themes = all_themes(dir.path());
+        assert_eq!(themes.len(), 1);
+        assert_eq!(themes[0].name, "Terminal Default");
+    }
+
+    #[test]
+    fn seed_themes_creates_at_least_one_yaml() {
+        let dir = TempDir::new().unwrap();
+        seed_themes(dir.path()).unwrap();
+        let themes_dir = dir.path().join("themes");
+        let count = std::fs::read_dir(&themes_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .is_some_and(|x| x == "yaml" || x == "yml")
+            })
+            .count();
+        assert!(count > 0, "seed_themes must write at least one theme file");
+    }
+
+    #[test]
+    fn all_themes_after_seed_returns_named_themes() {
+        let dir = TempDir::new().unwrap();
+        seed_themes(dir.path()).unwrap();
+        let themes = all_themes(dir.path());
+        assert!(
+            themes.iter().any(|t| t.name != "Terminal Default"),
+            "seeded themes should include at least one non-fallback theme"
+        );
+    }
+
+    #[test]
+    fn seed_themes_is_idempotent() {
+        let dir = TempDir::new().unwrap();
+        seed_themes(dir.path()).unwrap();
+        let count_first = std::fs::read_dir(dir.path().join("themes"))
+            .unwrap()
+            .count();
+        seed_themes(dir.path()).unwrap();
+        let count_second = std::fs::read_dir(dir.path().join("themes"))
+            .unwrap()
+            .count();
+        assert_eq!(count_first, count_second, "seeding twice must not duplicate files");
+    }
+}
