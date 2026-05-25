@@ -114,7 +114,7 @@ impl App {
     ) -> Result<Self, AppError> {
         seed_themes(&config_dir)?;
         let themes = all_themes(&config_dir);
-        let prefs = Preferences::load(&config_dir);
+        let (prefs, config_err) = Preferences::load(&config_dir);
 
         let theme_name = initial_theme.or(prefs.theme.as_deref());
         let theme_idx = theme_name
@@ -139,7 +139,7 @@ impl App {
             mode: Mode::Normal,
             commit_title: String::new(),
             commit_body: String::new(),
-            status_msg: None,
+            status_msg: config_err,
             themes,
             theme_idx,
             theme_picker_cursor: theme_idx,
@@ -856,6 +856,30 @@ mod tests {
     }
 
     #[test]
+    fn corrupt_config_surfaces_error_in_status_msg() {
+        let repo_dir = tempfile::TempDir::new().unwrap();
+        let config_dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(config_dir.path().join("config.toml"), "not valid toml !!!").unwrap();
+        let repo = git2::Repository::init(repo_dir.path()).unwrap();
+        let app = App::new(repo, config_dir.path().to_path_buf(), None).unwrap();
+        assert!(
+            app.status_msg.is_some(),
+            "a corrupt config.toml must surface an error in the status bar"
+        );
+        let msg = app.status_msg.unwrap();
+        assert!(msg.contains("config.toml.bak"), "status message must mention the backup file");
+    }
+
+    #[test]
+    fn valid_config_leaves_status_msg_empty() {
+        let (_repo, _cfg, app) = make_test_app();
+        assert!(
+            app.status_msg.is_none(),
+            "a valid (or absent) config must not set a status message on startup"
+        );
+    }
+
+    #[test]
     fn needs_clear_false_on_construction() {
         let (_repo, _cfg, app) = make_test_app();
         assert!(!app.needs_clear, "needs_clear should start false");
@@ -903,12 +927,12 @@ mod tests {
         app.toggle_transparent().unwrap();
         assert!(app.transparent);
 
-        let reloaded = crate::config::Preferences::load(cfg.path());
+        let (reloaded, _) = crate::config::Preferences::load(cfg.path());
         assert!(reloaded.transparent, "toggle must persist transparent=true to config.toml");
 
         app.toggle_transparent().unwrap();
         assert!(!app.transparent);
-        let reloaded2 = crate::config::Preferences::load(cfg.path());
+        let (reloaded2, _) = crate::config::Preferences::load(cfg.path());
         assert!(!reloaded2.transparent, "second toggle must persist transparent=false");
     }
 
