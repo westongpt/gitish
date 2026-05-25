@@ -579,7 +579,8 @@ impl App {
             terminal.draw(|f| crate::ui::draw(f, self))?;
 
             // After the loading frame is painted, dispatch the operation.
-            if let Mode::Loading(op) = self.mode.clone() {
+            if let Mode::Loading(op) = &self.mode {
+                let op = op.clone();
                 match op {
                     LoadingOp::Commit => {
                         // Commit is synchronous (fast libgit2 call, no blocking I/O).
@@ -608,12 +609,19 @@ impl App {
 
             self.status_msg = None;
 
-            match self.mode.clone() {
+            let confirming_action = if let Mode::Confirming(a) = &self.mode {
+                Some(a.clone())
+            } else {
+                None
+            };
+            match &self.mode {
                 Mode::Normal => self.handle_normal(event)?,
                 Mode::CommitTitle => self.handle_commit_title(event)?,
                 Mode::CommitBody => self.handle_commit_body(event)?,
                 Mode::ThemePicker => self.handle_theme_picker(event)?,
-                Mode::Confirming(action) => self.handle_confirming(event, action)?,
+                Mode::Confirming(_) => {
+                    self.handle_confirming(event, confirming_action.unwrap())?
+                }
                 Mode::Help => self.handle_help(event)?,
                 Mode::Loading(_) => {
                     // Drain input while a remote worker runs; only Quit is honoured.
