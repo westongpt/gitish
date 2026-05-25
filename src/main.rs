@@ -7,6 +7,7 @@ mod git;
 mod seeds;
 mod theme;
 mod ui;
+mod ui_helpers;
 
 use std::io;
 

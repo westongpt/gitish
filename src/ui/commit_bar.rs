@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
@@ -9,6 +7,7 @@ use ratatui::{
 };
 
 use crate::app::{App, Mode};
+use crate::ui_helpers::tilde_path;
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let theme = app.current_theme();
@@ -85,11 +84,3 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(paragraph, area);
 }
 
-fn tilde_path(path: &Path) -> Option<String> {
-    let home = dirs::home_dir()?;
-    if let Ok(rel) = path.strip_prefix(&home) {
-        Some(format!("~/{}", rel.display()))
-    } else {
-        Some(path.display().to_string())
-    }
-}

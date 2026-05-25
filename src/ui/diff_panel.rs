@@ -9,6 +9,7 @@ use ratatui::{
 use crate::app::{App, Focus};
 use crate::git::repo::{ConflictBlock, Hunk, LineKind};
 use crate::theme::Theme;
+use crate::ui_helpers::hunk_counter_text;
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let theme = app.current_theme();
@@ -29,17 +30,13 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let no_file_selected = file_name.is_empty();
 
     let total = app.total_hunks();
-    let hunk_counter = if app.is_file_conflicted() && !app.conflict_blocks.is_empty() {
-        format!(
-            " [conflict {}/{}] ",
-            app.conflict_cursor + 1,
-            app.conflict_blocks.len()
-        )
-    } else if total > 0 {
-        format!(" [{}/{}] ", app.hunk_cursor + 1, total)
-    } else {
-        String::new()
-    };
+    let hunk_counter = hunk_counter_text(
+        app.is_file_conflicted(),
+        app.conflict_cursor,
+        app.conflict_blocks.len(),
+        app.hunk_cursor,
+        total,
+    );
 
     let title = if no_file_selected {
         Line::from(Span::styled(
