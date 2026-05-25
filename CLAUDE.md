@@ -21,24 +21,36 @@ Once I complete a feature, I will build the app and stop to ask the human for fe
 
 ## Architecture
 
+The app uses a **monolithic App + stateless git layer** pattern. A Container/UseCase/Router/Gateway refactor was considered (see issue #28) and deferred — the monolithic App is intentional for this release.
+
 ```
 src/
   main.rs          # entry point: parse args, open repo, run app
-  app.rs           # App struct — top-level state machine, event loop
+  app.rs           # App struct — owns all state (repo, files, hunks, UI mode,
+                   #   commit input, theme) and the full event loop + handler dispatch
   git/
     mod.rs
-    repo.rs        # repo discovery, status, diff parsing
-    stage.rs       # stage/unstage hunks and files
-    commit.rs      # commit with message
+    repo.rs        # stateless: list changed files, parse diffs, detect conflicts
+    stage.rs       # stateless: stage/unstage/discard hunks and files, resolve conflicts
+    commit.rs      # stateless: create commits
+    remote.rs      # stateless: push/pull (spawned in background thread)
   ui/
     mod.rs
-    layout.rs      # ratatui layout helpers
-    file_list.rs   # left panel: file tree with staged/unstaged counts
-    diff_view.rs   # right panel: hunk-by-hunk diff with syntax highlight
-    commit_bar.rs  # bottom bar: commit message input + keybindings
-  keybinds.rs      # all keybinding constants and handler dispatch
-  config.rs        # user config (keybinds overrides, color theme)
+    file_panel.rs  # stateless ratatui render — left panel file list
+    diff_panel.rs  # stateless ratatui render — right panel hunk diff
+    commit_bar.rs  # stateless ratatui render — bottom commit input bar
+    theme_picker.rs # stateless ratatui render — theme selection overlay
+    help.rs        # stateless ratatui render — help screen
+  keybinds.rs      # keybinding constants
+  config.rs        # XDG prefs load/save (theme, transparency)
+  theme.rs         # ThemeList newtype, theme loading from disk, fallback theme
+  seeds.rs         # bundled default Catppuccin theme YAML files
 ```
+
+**Layer responsibilities:**
+- `App` (`app.rs`) — single source of truth for all mutable state; handles every key event via `handle_normal()`, `handle_commit_title()`, `handle_commit_body()`, `handle_theme_picker()`, `handle_help()`, `handle_confirming()`
+- `git/` — pure functions; no state, no side effects beyond libgit2 calls; treat these as the persistence/data layer
+- `ui/` — pure render functions; receive `&App`, produce ratatui widgets; no state mutations
 
 ## Coding conventions
 
@@ -58,7 +70,7 @@ src/
 - [x] `git/repo.rs` — open repo, list changed files, parse diffs into hunks
 - [x] `git/stage.rs` — apply/unapply patch hunks via libgit2
 - [x] `git/commit.rs` — write commit
-- [x] `app.rs` — event loop, Container/UseCase/Router pattern
+- [x] `app.rs` — event loop, monolithic App state machine
 - [x] `ui/file_panel.rs` — file panel with nerd font icons, partial-staging color
 - [x] `ui/diff_panel.rs` — diff panel with hunk navigation
 - [x] `ui/commit_bar.rs` — commit title + body input
@@ -86,7 +98,7 @@ src/
     - On the right panel, will show a list of changes in the files. There will be bindings to jump to next and previous change, and buttons to stage or discard the change.
 - At the bottom of the window will be a spot to compose a commit title and comment. Comment will be optional and be added as a second comment on the git commit as per the norm.
 - Full unit tests
-- Follow the architecture from the agent-library. Container, UseCase, Router, Gateway.
+- Architecture: monolithic App struct with stateless git/ modules (see Architecture section above).
 - Support for nerd font glyphs.
 - Theming with built in support for Catppuccin. You can look at my other app ../agent-libary source for theming details.
 - Commit button at the bottom will create the commit.
