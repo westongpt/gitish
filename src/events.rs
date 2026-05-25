@@ -26,6 +26,7 @@ pub enum AppEvent {
     ToggleFocus,
     OpenThemePicker,
     OpenHelp,
+    Refresh,
     // text input
     Char(char),
     Backspace,
@@ -81,6 +82,7 @@ fn translate_key(key: KeyEvent) -> Option<AppEvent> {
         KeyCode::Char('i') => Some(AppEvent::AcceptTheirs),
         KeyCode::Char('b') => Some(AppEvent::AcceptBoth),
         KeyCode::Char('?') => Some(AppEvent::OpenHelp),
+        KeyCode::Char('r') => Some(AppEvent::Refresh),
         KeyCode::Tab => Some(AppEvent::ToggleFocus),
         KeyCode::Enter => Some(AppEvent::Confirm),
         KeyCode::Esc => Some(AppEvent::Cancel),
@@ -196,6 +198,11 @@ mod tests {
     fn translate_key_theme_and_help() {
         assert_eq!(translate_key(key(KeyCode::Char('t'))), Some(AppEvent::OpenThemePicker));
         assert_eq!(translate_key(key(KeyCode::Char('?'))), Some(AppEvent::OpenHelp));
+    }
+
+    #[test]
+    fn translate_key_refresh() {
+        assert_eq!(translate_key(key(KeyCode::Char('r'))), Some(AppEvent::Refresh));
     }
 
     #[test]

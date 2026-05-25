@@ -75,6 +75,7 @@ fn render_help_popup(f: &mut Frame, app: &App) {
         Line::from(vec![Span::styled("  L           ", key), Span::styled("pull", desc)]),
         Line::from(""),
         Line::from(Span::styled("Interface", head)),
+        Line::from(vec![Span::styled("  r           ", key), Span::styled("refresh file list", desc)]),
         Line::from(vec![Span::styled("  t           ", key), Span::styled("theme picker", desc)]),
         Line::from(vec![Span::styled("  ? / Esc     ", key), Span::styled("close this help", desc)]),
         Line::from(vec![Span::styled("  q           ", key), Span::styled("quit", desc)]),
