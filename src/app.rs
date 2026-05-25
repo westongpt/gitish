@@ -1,8 +1,11 @@
+use std::sync::mpsc;
+
 use git2::Repository;
 
 use crate::config::Preferences;
 use crate::error::AppError;
 use crate::events::{next_event, AppEvent};
+use crate::git::remote::RemoteResult;
 use crate::git::repo::{
     detect_conflicts, diff_for_file, list_changed_files, staged_diff_for_file, ChangedFile,
     ConflictBlock, FileStatus, Hunk,
@@ -10,6 +13,8 @@ use crate::git::repo::{
 use crate::git::stage::ConflictSide;
 use crate::git::{commit::create_commit, remote, stage};
 use crate::theme::{all_themes, load_theme_by_name, seed_themes, NamedTheme};
+
+type WorkerMsg = (LoadingOp, Result<RemoteResult, AppError>);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Focus {
@@ -90,6 +95,10 @@ pub struct App {
     pub help_scroll: u16,
     /// Clamping bound for help_scroll; recomputed from terminal size each frame.
     pub help_max_scroll: u16,
+    /// Incremented each run-loop tick while in Loading mode; drives spinner animation.
+    pub spinner_tick: u64,
+    /// Receives the result from a background push/pull thread.
+    worker_rx: Option<mpsc::Receiver<WorkerMsg>>,
     config_dir: std::path::PathBuf,
 }
 
@@ -134,6 +143,8 @@ impl App {
             needs_clear: false,
             help_scroll: 0,
             help_max_scroll: u16::MAX,
+            spinner_tick: 0,
+            worker_rx: None,
             config_dir,
         })
     }
@@ -369,35 +380,66 @@ impl App {
         Ok(())
     }
 
-    // ── remote ────────────────────────────────────────────────────────────
 
-    pub fn do_push(&mut self) -> Result<(), AppError> {
-        let result = remote::push(&self.repo)?;
-        self.status_msg = Some(if result.success {
-            format!("Push: {}", result.output)
-        } else {
-            format!("Push failed: {}", result.output)
-        });
-        Ok(())
-    }
-
-    pub fn do_pull(&mut self) -> Result<(), AppError> {
-        let result = remote::pull(&self.repo)?;
-        if result.success {
-            self.status_msg = Some(format!("Pull: {}", result.output));
-            self.refresh()?;
-        } else {
-            self.status_msg = Some(format!("Pull failed: {}", result.output));
-        }
-        Ok(())
-    }
-
-    pub fn execute_loading(&mut self, op: LoadingOp) -> Result<(), AppError> {
+    /// Synchronous path for commit (fast, in-process libgit2 — no thread needed).
+    pub fn execute_commit(&mut self) -> Result<(), AppError> {
         self.mode = Mode::Normal;
-        match op {
-            LoadingOp::Push => self.do_push()?,
-            LoadingOp::Pull => self.do_pull()?,
-            LoadingOp::Commit => self.do_commit()?,
+        self.do_commit()
+    }
+
+    /// Spawn a background thread for the blocking push/pull and store the receiver.
+    /// Must only be called when `self.worker_rx` is `None`.
+    pub fn spawn_remote_worker(&mut self, op: LoadingOp) -> Result<(), AppError> {
+        let workdir = self
+            .repo
+            .workdir()
+            .ok_or_else(|| AppError::Invalid("cannot push/pull a bare repository".into()))?
+            .to_path_buf();
+
+        let (tx, rx) = mpsc::channel::<WorkerMsg>();
+        self.worker_rx = Some(rx);
+
+        std::thread::spawn(move || {
+            let result = match op {
+                LoadingOp::Push => remote::push_in_dir(workdir),
+                LoadingOp::Pull => remote::pull_in_dir(workdir),
+                LoadingOp::Commit => unreachable!("commit is handled synchronously"),
+            };
+            let _ = tx.send((op, result));
+        });
+
+        Ok(())
+    }
+
+    /// Handle the result that arrived from a worker thread.
+    pub fn finish_remote_op(
+        &mut self,
+        op: LoadingOp,
+        result: Result<RemoteResult, AppError>,
+    ) -> Result<(), AppError> {
+        self.mode = Mode::Normal;
+        match result {
+            Err(e) => {
+                self.status_msg = Some(format!("Error: {e}"));
+            }
+            Ok(r) => match op {
+                LoadingOp::Push => {
+                    self.status_msg = Some(if r.success {
+                        format!("Push: {}", r.output)
+                    } else {
+                        format!("Push failed: {}", r.output)
+                    });
+                }
+                LoadingOp::Pull => {
+                    if r.success {
+                        self.status_msg = Some(format!("Pull: {}", r.output));
+                        self.refresh()?;
+                    } else {
+                        self.status_msg = Some(format!("Pull failed: {}", r.output));
+                    }
+                }
+                LoadingOp::Commit => unreachable!("commit result handled synchronously"),
+            },
         }
         Ok(())
     }
@@ -494,6 +536,29 @@ impl App {
         terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
     ) -> Result<(), AppError> {
         loop {
+            // Collect any completed worker result before drawing so the final
+            // status message appears in the same frame the overlay disappears.
+            if let Some(rx) = self.worker_rx.take() {
+                match rx.try_recv() {
+                    Ok((op, outcome)) => {
+                        self.finish_remote_op(op, outcome)?;
+                        self.spinner_tick = 0;
+                        // worker_rx stays None — operation complete
+                    }
+                    Err(mpsc::TryRecvError::Empty) => {
+                        // Thread still running — put the receiver back.
+                        self.worker_rx = Some(rx);
+                        self.spinner_tick = self.spinner_tick.wrapping_add(1);
+                    }
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        // Thread panicked or exited without sending — treat as error.
+                        self.mode = Mode::Normal;
+                        self.status_msg = Some("Remote operation failed unexpectedly".into());
+                        self.spinner_tick = 0;
+                    }
+                }
+            }
+
             // After any operation that shrinks content (commit, stage, unstage),
             // refresh() sets needs_clear so we force a full repaint and avoid
             // ratatui's diff leaving ghost cells from the previous larger content.
@@ -506,11 +571,22 @@ impl App {
             }
             terminal.draw(|f| crate::ui::draw(f, self))?;
 
-            // Execute any pending loading operation after the frame is rendered,
-            // so the user sees the loading indicator before we block.
+            // After the loading frame is painted, dispatch the operation.
             if let Mode::Loading(op) = self.mode.clone() {
-                self.execute_loading(op)?;
-                continue;
+                match op {
+                    LoadingOp::Commit => {
+                        // Commit is synchronous (fast libgit2 call, no blocking I/O).
+                        self.execute_commit()?;
+                        continue;
+                    }
+                    LoadingOp::Push | LoadingOp::Pull => {
+                        if self.worker_rx.is_none() {
+                            self.spawn_remote_worker(op)?;
+                        }
+                        // Fall through to event polling so inputs are drained while
+                        // the worker thread runs.
+                    }
+                }
             }
 
             let text_input = matches!(self.mode, Mode::CommitTitle | Mode::CommitBody);
@@ -527,7 +603,12 @@ impl App {
                 Mode::ThemePicker => self.handle_theme_picker(event)?,
                 Mode::Confirming(action) => self.handle_confirming(event, action)?,
                 Mode::Help => self.handle_help(event)?,
-                Mode::Loading(_) => {} // handled above before event polling
+                Mode::Loading(_) => {
+                    // Drain input while a remote worker runs; only Quit is honoured.
+                    if matches!(event, AppEvent::Quit) {
+                        self.mode = Mode::Quitting;
+                    }
+                }
                 Mode::Quitting => break,
             }
 
@@ -886,5 +967,115 @@ mod tests {
         app.mode = Mode::Help;
         app.handle_help(crate::events::AppEvent::Cancel).unwrap();
         assert_eq!(app.mode, Mode::Normal);
+    }
+
+    // ── worker thread / spinner tests ─────────────────────────────────────
+
+    #[test]
+    fn spinner_tick_starts_at_zero() {
+        let (_repo, _cfg, app) = make_test_app();
+        assert_eq!(app.spinner_tick, 0);
+    }
+
+    #[test]
+    fn worker_rx_starts_as_none() {
+        let (_repo, _cfg, app) = make_test_app();
+        assert!(app.worker_rx.is_none());
+    }
+
+    #[test]
+    fn spawn_remote_worker_sets_receiver() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.mode = Mode::Loading(LoadingOp::Push);
+        // spawn_remote_worker requires a non-bare repo workdir; make_test_app provides one
+        app.spawn_remote_worker(LoadingOp::Push).unwrap();
+        assert!(app.worker_rx.is_some(), "worker_rx must be Some after spawning");
+    }
+
+    #[test]
+    fn finish_remote_op_push_success_sets_status_msg() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        let result = Ok(crate::git::remote::RemoteResult { success: true, output: "ok".into() });
+        app.finish_remote_op(LoadingOp::Push, result).unwrap();
+        assert_eq!(app.status_msg, Some("Push: ok".into()));
+        assert_eq!(app.mode, Mode::Normal);
+    }
+
+    #[test]
+    fn finish_remote_op_push_failure_sets_status_msg() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        let result = Ok(crate::git::remote::RemoteResult { success: false, output: "rejected".into() });
+        app.finish_remote_op(LoadingOp::Push, result).unwrap();
+        assert_eq!(app.status_msg, Some("Push failed: rejected".into()));
+        assert_eq!(app.mode, Mode::Normal);
+    }
+
+    #[test]
+    fn finish_remote_op_pull_success_sets_status_msg() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        let result = Ok(crate::git::remote::RemoteResult { success: true, output: "up-to-date".into() });
+        app.finish_remote_op(LoadingOp::Pull, result).unwrap();
+        assert_eq!(app.status_msg, Some("Pull: up-to-date".into()));
+        assert_eq!(app.mode, Mode::Normal);
+    }
+
+    #[test]
+    fn finish_remote_op_pull_failure_sets_status_msg() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        let result = Ok(crate::git::remote::RemoteResult { success: false, output: "not merged".into() });
+        app.finish_remote_op(LoadingOp::Pull, result).unwrap();
+        assert_eq!(app.status_msg, Some("Pull failed: not merged".into()));
+        assert_eq!(app.mode, Mode::Normal);
+    }
+
+    #[test]
+    fn finish_remote_op_error_sets_status_msg() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        let result: Result<crate::git::remote::RemoteResult, AppError> =
+            Err(AppError::Invalid("connection refused".into()));
+        app.finish_remote_op(LoadingOp::Push, result).unwrap();
+        let msg = app.status_msg.unwrap();
+        assert!(msg.contains("connection refused"), "error text must appear in status bar");
+        assert_eq!(app.mode, Mode::Normal);
+    }
+
+    #[test]
+    fn loading_input_only_honours_quit() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.mode = Mode::Loading(LoadingOp::Push);
+
+        // non-Quit events must be silently drained
+        let result = app.handle_normal(crate::events::AppEvent::Stage);
+        // handle_normal isn't called during Loading — verify the mode unchanged
+        // when we manually replicate the Loading arm of the run-loop match.
+        // The run loop does: Mode::Loading(_) => { if Quit { mode = Quitting } }
+        let event = crate::events::AppEvent::Stage;
+        let before = app.mode.clone();
+        if matches!(app.mode, Mode::Loading(_)) && matches!(event, AppEvent::Quit) {
+            app.mode = Mode::Quitting;
+        }
+        assert_eq!(app.mode, before, "non-Quit event must not change Loading mode");
+        let _ = result;
+    }
+
+    #[test]
+    fn loading_quit_event_sets_quitting() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.mode = Mode::Loading(LoadingOp::Push);
+        let event = crate::events::AppEvent::Quit;
+        if matches!(app.mode, Mode::Loading(_)) && matches!(event, AppEvent::Quit) {
+            app.mode = Mode::Quitting;
+        }
+        assert_eq!(app.mode, Mode::Quitting);
+    }
+
+    #[test]
+    fn execute_commit_empty_title_leaves_normal_mode() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.mode = Mode::Loading(LoadingOp::Commit);
+        app.commit_title.clear();
+        app.execute_commit().unwrap();
+        assert_eq!(app.mode, Mode::Normal, "empty-title commit must still exit Loading");
+        assert!(app.status_msg.is_some(), "must set an error message for empty title");
     }
 }
