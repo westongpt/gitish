@@ -71,7 +71,14 @@ pub fn resolve_conflict_block(
 
 pub fn stage_file(repo: &Repository, path: &str) -> Result<(), AppError> {
     let mut index = repo.index()?;
-    index.add_path(Path::new(path))?;
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| AppError::Invalid("bare repository".into()))?;
+    if workdir.join(path).exists() {
+        index.add_path(Path::new(path))?;
+    } else {
+        index.remove_path(Path::new(path))?;
+    }
     index.write()?;
     Ok(())
 }
@@ -231,6 +238,54 @@ mod tests {
 
         let files = list_changed_files(&repo).unwrap();
         assert!(files.iter().any(|f| f.path == "file.txt" && f.staged));
+    }
+
+    #[test]
+    fn stage_deleted_file_removes_from_index() {
+        let (dir, repo) = make_repo_with_commit("content\n");
+        let fpath = dir.path().join("file.txt");
+
+        // Delete the file from the working tree
+        fs::remove_file(&fpath).unwrap();
+
+        let files = list_changed_files(&repo).unwrap();
+        assert!(
+            files.iter().any(|f| f.path == "file.txt" && f.unstaged),
+            "deleted file should appear as unstaged before staging"
+        );
+
+        // stage_file should not crash and should mark the deletion in the index
+        stage_file(&repo, "file.txt").unwrap();
+
+        let files = list_changed_files(&repo).unwrap();
+        assert!(
+            files.iter().any(|f| f.path == "file.txt" && f.staged),
+            "deleted file should be staged after stage_file"
+        );
+    }
+
+    #[test]
+    fn stage_deleted_file_unstage_restores_index() {
+        let (dir, repo) = make_repo_with_commit("content\n");
+        let fpath = dir.path().join("file.txt");
+
+        fs::remove_file(&fpath).unwrap();
+        stage_file(&repo, "file.txt").unwrap();
+
+        let files = list_changed_files(&repo).unwrap();
+        assert!(
+            files.iter().any(|f| f.path == "file.txt" && f.staged),
+            "deletion should be staged"
+        );
+
+        unstage_file(&repo, "file.txt").unwrap();
+
+        let files = list_changed_files(&repo).unwrap();
+        let entry = files.iter().find(|f| f.path == "file.txt");
+        assert!(
+            entry.map_or(true, |f| !f.staged),
+            "file should not be staged after unstaging"
+        );
     }
 
     #[test]
