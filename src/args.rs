@@ -5,14 +5,17 @@ use crate::error::AppError;
 #[derive(Debug, Clone, PartialEq)]
 pub enum InitialMode {
     ThemePicker,
+    /// Show the loading overlay with animated spinner (screenshot / demo use).
+    Spinner,
 }
 
 impl InitialMode {
     fn parse(s: &str) -> Result<Self, AppError> {
         match s {
             "theme-picker" => Ok(Self::ThemePicker),
+            "spinner" => Ok(Self::Spinner),
             other => Err(AppError::Invalid(format!(
-                "Unknown --open value '{other}'. Valid values: theme-picker"
+                "Unknown --open value '{other}'. Valid values: theme-picker, spinner"
             ))),
         }
     }
@@ -39,6 +42,7 @@ CLI OPTIONS:
         Launch directly into a specific UI state instead of the normal file list.
         Valid values:
           theme-picker   Open the theme picker immediately on startup
+          spinner        Show the loading overlay with animated spinner (for screenshots)
         Example: gitish --open theme-picker
 
     --help, -h, -?
@@ -201,5 +205,11 @@ mod tests {
     fn open_unknown_value_is_error() {
         let result = parse(&["--open", "banana"]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn open_spinner_sets_mode() {
+        let result = parse(&["--open", "spinner"]).unwrap().unwrap();
+        assert_eq!(result.open, Some(InitialMode::Spinner));
     }
 }

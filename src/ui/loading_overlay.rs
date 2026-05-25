@@ -7,6 +7,8 @@ use ratatui::{
 
 use crate::app::{App, Mode};
 
+const SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
 pub fn render(f: &mut Frame, app: &App) {
     let Mode::Loading(ref op) = app.mode else {
         return;
@@ -15,8 +17,12 @@ pub fn render(f: &mut Frame, app: &App) {
     let theme = app.current_theme();
     let area = super::layout::centered_rect(30, 20, f.area());
 
+    let frame = (app.spinner_tick as usize) % SPINNER.len();
     let label = Line::from(vec![
-        Span::styled("  ", Style::default().fg(theme.base0a)),
+        Span::styled(
+            format!("{}  ", SPINNER[frame]),
+            Style::default().fg(theme.base0a),
+        ),
         Span::styled(op.label(), Style::default().fg(theme.base05)),
     ]);
 

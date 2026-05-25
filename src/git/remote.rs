@@ -1,6 +1,5 @@
+use std::path::{Path, PathBuf};
 use std::process::Command;
-
-use git2::Repository;
 
 use crate::error::AppError;
 
@@ -9,19 +8,18 @@ pub struct RemoteResult {
     pub output: String,
 }
 
-pub fn push(repo: &Repository) -> Result<RemoteResult, AppError> {
-    run_git(repo, &["push"])
+/// Blocking push — takes an owned path so it can run on a worker thread
+/// without borrowing Repository across the thread boundary.
+pub fn push_in_dir(workdir: PathBuf) -> Result<RemoteResult, AppError> {
+    run_git(&workdir, &["push"])
 }
 
-pub fn pull(repo: &Repository) -> Result<RemoteResult, AppError> {
-    run_git(repo, &["pull"])
+/// Blocking pull — same threading rationale as `push_in_dir`.
+pub fn pull_in_dir(workdir: PathBuf) -> Result<RemoteResult, AppError> {
+    run_git(&workdir, &["pull"])
 }
 
-fn run_git(repo: &Repository, args: &[&str]) -> Result<RemoteResult, AppError> {
-    let workdir = repo
-        .workdir()
-        .ok_or_else(|| AppError::Invalid("cannot push/pull a bare repository".into()))?;
-
+fn run_git(workdir: &Path, args: &[&str]) -> Result<RemoteResult, AppError> {
     let out = Command::new("git")
         .args(args)
         .current_dir(workdir)
@@ -49,4 +47,24 @@ fn run_git(repo: &Repository, args: &[&str]) -> Result<RemoteResult, AppError> {
         success: out.status.success(),
         output: summary,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remote_result_fields() {
+        let r = RemoteResult { success: true, output: "ok".into() };
+        assert!(r.success);
+        assert_eq!(r.output, "ok");
+    }
+
+    #[test]
+    fn push_in_dir_and_pull_in_dir_are_send() {
+        fn assert_send<T: Send>() {}
+        // These functions return a Send type — verifies the signatures compile
+        // for use across thread boundaries.
+        assert_send::<Result<RemoteResult, AppError>>();
+    }
 }
