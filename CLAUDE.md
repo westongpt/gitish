@@ -71,6 +71,7 @@ src/
 ## Rules
 - We require 80% code coverage, Strive for 100%. We leave that 20% because we don't want to add tests for low value areas such as asserting static values.
 - Keep README.md and help command updated. When adding new features, update the README.md and the help command.
+- When making a PR, if a screenshot exists for a closed ticket in the /docs/screenshots folder, remove it. We want to keep the repo side managable.
 
 <!-- ============================================================
      FEATURE LIST — paste your wishlist below this line
