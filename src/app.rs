@@ -88,6 +88,8 @@ pub struct App {
     /// preventing stale cells when content shrinks (e.g. after a commit).
     pub needs_clear: bool,
     pub help_scroll: u16,
+    /// Clamping bound for help_scroll; recomputed from terminal size each frame.
+    pub help_max_scroll: u16,
     config_dir: std::path::PathBuf,
 }
 
@@ -131,6 +133,7 @@ impl App {
             transparent: prefs.transparent,
             needs_clear: false,
             help_scroll: 0,
+            help_max_scroll: u16::MAX,
             config_dir,
         })
     }
@@ -498,6 +501,9 @@ impl App {
                 terminal.clear()?;
                 self.needs_clear = false;
             }
+            if let Ok(size) = terminal.size() {
+                self.help_max_scroll = crate::ui::help_max_scroll(size.height);
+            }
             terminal.draw(|f| crate::ui::draw(f, self))?;
 
             // Execute any pending loading operation after the frame is rendered,
@@ -535,7 +541,9 @@ impl App {
     fn handle_help(&mut self, event: AppEvent) -> Result<(), AppError> {
         match event {
             AppEvent::Quit | AppEvent::Cancel | AppEvent::OpenHelp => self.mode = Mode::Normal,
-            AppEvent::MoveDown => self.help_scroll = self.help_scroll.saturating_add(1),
+            AppEvent::MoveDown => {
+                self.help_scroll = self.help_scroll.saturating_add(1).min(self.help_max_scroll);
+            }
             AppEvent::MoveUp => self.help_scroll = self.help_scroll.saturating_sub(1),
             _ => {}
         }
@@ -840,8 +848,19 @@ mod tests {
     fn help_move_down_increments_scroll() {
         let (_repo, _cfg, mut app) = make_test_app();
         app.mode = Mode::Help;
+        app.help_max_scroll = 10;
         app.handle_help(crate::events::AppEvent::MoveDown).unwrap();
         assert_eq!(app.help_scroll, 1);
+    }
+
+    #[test]
+    fn help_move_down_does_not_exceed_max_scroll() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.mode = Mode::Help;
+        app.help_max_scroll = 3;
+        app.help_scroll = 3;
+        app.handle_help(crate::events::AppEvent::MoveDown).unwrap();
+        assert_eq!(app.help_scroll, 3, "scroll must not exceed help_max_scroll");
     }
 
     #[test]
