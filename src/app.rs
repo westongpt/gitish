@@ -547,12 +547,15 @@ impl App {
         let prev_cursor = self.hunk_cursor;
         let prev_conflict_cursor = self.conflict_cursor;
         self.reload_hunks();
-        // keep hunk cursor in bounds after staging/unstaging shifts the list
+        // reload_hunks() resets the cursor to 0; restore the prior position so
+        // staging/unstaging a hunk doesn't jerk the selection back to the top.
+        // Clamp to the last hunk if the list shrank.
         let total = self.total_hunks();
-        if total > 0 && self.hunk_cursor >= total {
+        if total > 0 && prev_cursor < total {
+            self.hunk_cursor = prev_cursor;
+        } else if total > 0 {
             self.hunk_cursor = total - 1;
         }
-        let _ = prev_cursor;
         // keep conflict cursor in bounds after a block is resolved
         let n_conflicts = self.conflict_blocks.len();
         if n_conflicts > 0 && prev_conflict_cursor < n_conflicts {
@@ -1040,6 +1043,60 @@ mod tests {
         let msg = app.status_msg.expect("a failed diff load must surface a status message");
         assert!(msg.contains("Failed to load diff"), "status message must name the failure, got: {msg:?}");
         assert!(app.staged_hunks.is_empty() && app.unstaged_hunks.is_empty());
+    }
+
+    // Builds an app over a repo whose single tracked file has two well-separated
+    // unstaged hunks, so total_hunks() == 2 after a refresh.
+    fn app_with_two_hunks() -> (tempfile::TempDir, tempfile::TempDir, App) {
+        let repo_dir = tempfile::TempDir::new().unwrap();
+        let config_dir = tempfile::TempDir::new().unwrap();
+        let repo = git2::Repository::init(repo_dir.path()).unwrap();
+        let fpath = repo_dir.path().join("f.txt");
+
+        let base: String = (1..=30).map(|n| format!("line{n}\n")).collect();
+        std::fs::write(&fpath, &base).unwrap();
+        {
+            let mut idx = repo.index().unwrap();
+            idx.add_path(std::path::Path::new("f.txt")).unwrap();
+            idx.write().unwrap();
+            let tree_id = idx.write_tree().unwrap();
+            let tree = repo.find_tree(tree_id).unwrap();
+            let sig = git2::Signature::now("Test", "test@test.com").unwrap();
+            repo.commit(Some("HEAD"), &sig, &sig, "init", &tree, &[]).unwrap();
+        }
+
+        // Edit two regions far apart (>2*context lines) to yield two hunks.
+        let edited = base.replace("line3\n", "line3-changed\n").replace("line27\n", "line27-changed\n");
+        std::fs::write(&fpath, edited).unwrap();
+
+        let app = App::new(repo, config_dir.path().to_path_buf(), None).unwrap();
+        (repo_dir, config_dir, app)
+    }
+
+    #[test]
+    fn refresh_preserves_hunk_cursor_in_bounds() {
+        let (_repo, _cfg, mut app) = app_with_two_hunks();
+        assert_eq!(app.total_hunks(), 2, "fixture must produce two hunks");
+        app.hunk_cursor = 1;
+        app.refresh().unwrap();
+        assert_eq!(app.hunk_cursor, 1, "refresh must keep the hunk cursor where it was");
+    }
+
+    #[test]
+    fn refresh_clamps_hunk_cursor_when_out_of_bounds() {
+        let (_repo, _cfg, mut app) = app_with_two_hunks();
+        assert_eq!(app.total_hunks(), 2);
+        app.hunk_cursor = 99;
+        app.refresh().unwrap();
+        assert_eq!(app.hunk_cursor, 1, "refresh must clamp an out-of-range cursor to the last hunk");
+    }
+
+    #[test]
+    fn refresh_resets_hunk_cursor_when_no_hunks() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.hunk_cursor = 5;
+        app.refresh().unwrap();
+        assert_eq!(app.hunk_cursor, 0, "with no hunks the cursor must fall back to 0");
     }
 
     #[test]
