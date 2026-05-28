@@ -3,11 +3,29 @@ use std::path::{Path, PathBuf};
 
 use crate::error::AppError;
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Preferences {
     pub theme: Option<String>,
     #[serde(default)]
     pub transparent: bool,
+    /// Use Nerd Font glyphs for file/status icons. When false, fall back to
+    /// ASCII so the UI is legible without a Nerd Font installed.
+    #[serde(default = "default_true")]
+    pub use_nerd_fonts: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for Preferences {
+    fn default() -> Self {
+        Preferences {
+            theme: None,
+            transparent: false,
+            use_nerd_fonts: true,
+        }
+    }
 }
 
 impl Preferences {
@@ -61,6 +79,7 @@ mod tests {
         let (prefs, err) = Preferences::load(dir.path());
         assert!(prefs.theme.is_none());
         assert!(!prefs.transparent);
+        assert!(prefs.use_nerd_fonts, "nerd fonts must default to true");
         assert!(err.is_none());
     }
 
@@ -70,23 +89,52 @@ mod tests {
         let prefs = Preferences {
             theme: Some("Catppuccin Mocha".into()),
             transparent: true,
+            use_nerd_fonts: false,
         };
         prefs.save(dir.path()).unwrap();
         let (loaded, err) = Preferences::load(dir.path());
         assert_eq!(loaded.theme.as_deref(), Some("Catppuccin Mocha"));
         assert!(loaded.transparent);
+        assert!(!loaded.use_nerd_fonts, "use_nerd_fonts=false must round-trip");
         assert!(err.is_none());
     }
 
     #[test]
     fn save_transparent_false_roundtrips() {
         let dir = TempDir::new().unwrap();
-        let prefs = Preferences { theme: None, transparent: false };
+        let prefs = Preferences {
+            theme: None,
+            transparent: false,
+            use_nerd_fonts: true,
+        };
         prefs.save(dir.path()).unwrap();
         let (loaded, err) = Preferences::load(dir.path());
         assert!(loaded.theme.is_none());
         assert!(!loaded.transparent);
         assert!(err.is_none());
+    }
+
+    #[test]
+    fn load_defaults_nerd_fonts_true_when_field_absent() {
+        let dir = TempDir::new().unwrap();
+        // A config written before the flag existed has no use_nerd_fonts key.
+        std::fs::write(
+            dir.path().join("config.toml"),
+            "transparent = true\n",
+        )
+        .unwrap();
+        let (loaded, err) = Preferences::load(dir.path());
+        assert!(err.is_none());
+        assert!(loaded.transparent);
+        assert!(
+            loaded.use_nerd_fonts,
+            "missing use_nerd_fonts must default to true for backward compat"
+        );
+    }
+
+    #[test]
+    fn default_impl_enables_nerd_fonts() {
+        assert!(Preferences::default().use_nerd_fonts);
     }
 
     #[test]

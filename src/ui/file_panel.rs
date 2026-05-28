@@ -8,21 +8,11 @@ use ratatui::{
 
 use crate::app::{App, Focus};
 use crate::git::repo::FileStatus;
-
-// File-type glyphs (nf-md / Material Design Icons)
-const ICON_UNTRACKED: &str  = "\u{F128}";  // nf-fa-question_circle  — unknown to git
-const ICON_NEW: &str        = "\u{F0214}"; // nf-md-file_plus        — newly staged file
-const ICON_MODIFIED: &str   = "\u{F03EB}"; // nf-md-pencil           — changed file
-const ICON_DELETED: &str    = "\u{F01B4}"; // nf-md-delete           — removed file
-const ICON_CONFLICTED: &str = "\u{F0E7A}"; // nf-md-alert_circle     — merge conflict
-
-// Staging-state glyphs (nf-fa / Font Awesome circle family)
-const ICON_STAGED: &str   = "\u{F058}"; // nf-fa-check_circle   — fully in index
-const ICON_PARTIAL: &str  = "\u{F192}"; // nf-fa-dot_circle_o   — partially staged
-const ICON_UNSTAGED: &str = "\u{F10C}"; // nf-fa-circle_o       — not staged
+use crate::glyphs::{Glyphs, StageState};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let theme = app.current_theme();
+    let glyphs = Glyphs::new(app.use_nerd_fonts);
     let focused = app.focus == Focus::FileList;
 
     let border_style = if focused {
@@ -35,19 +25,21 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         .files
         .iter()
         .map(|file| {
-            let (stage_icon, stage_color) = match (file.staged, file.unstaged) {
-                (true, false) => (ICON_STAGED,   theme.base0e), // fully staged   — mauve
-                (true, true)  => (ICON_PARTIAL,  theme.base0a), // partially staged — yellow
-                _             => (ICON_UNSTAGED, theme.base03), // not staged      — dim
+            let (stage_state, stage_color) = match (file.staged, file.unstaged) {
+                (true, false) => (StageState::Staged,   theme.base0e), // fully staged   — mauve
+                (true, true)  => (StageState::Partial,  theme.base0a), // partially staged — yellow
+                _             => (StageState::Unstaged, theme.base03), // not staged      — dim
             };
+            let stage_icon = glyphs.stage_state(stage_state);
 
-            let (type_icon, type_color) = match file.status {
-                FileStatus::Untracked  => (ICON_UNTRACKED,  theme.base03),
-                FileStatus::New        => (ICON_NEW,         theme.base0b),
-                FileStatus::Modified   => (ICON_MODIFIED,    theme.base0d),
-                FileStatus::Deleted    => (ICON_DELETED,     theme.base08),
-                FileStatus::Conflicted => (ICON_CONFLICTED,  theme.base09),
+            let type_color = match file.status {
+                FileStatus::Untracked  => theme.base03,
+                FileStatus::New        => theme.base0b,
+                FileStatus::Modified   => theme.base0d,
+                FileStatus::Deleted    => theme.base08,
+                FileStatus::Conflicted => theme.base09,
             };
+            let type_icon = glyphs.file_status(file.status);
 
             let line = Line::from(vec![
                 Span::styled(format!("{stage_icon} "), Style::default().fg(stage_color)),

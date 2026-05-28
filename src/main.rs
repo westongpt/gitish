@@ -4,6 +4,7 @@ mod config;
 mod error;
 mod events;
 mod git;
+mod glyphs;
 mod seeds;
 mod theme;
 mod ui;
