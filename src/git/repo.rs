@@ -4,7 +4,7 @@ use git2::{Delta, DiffOptions, Repository, Status, StatusOptions};
 
 use crate::error::AppError;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileStatus {
     Untracked, // WT_NEW only — git has never seen this file
     New,       // INDEX_NEW  — staged for the first time

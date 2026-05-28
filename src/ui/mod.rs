@@ -79,6 +79,10 @@ fn render_help_popup(f: &mut Frame, app: &App) {
         Line::from(vec![Span::styled("  t           ", key), Span::styled("theme picker", desc)]),
         Line::from(vec![Span::styled("  ? / Esc     ", key), Span::styled("close this help", desc)]),
         Line::from(vec![Span::styled("  q           ", key), Span::styled("quit", desc)]),
+        Line::from(""),
+        Line::from(Span::styled("Configuration", head)),
+        Line::from(vec![Span::styled("  fonts       ", key), Span::styled("use_nerd_fonts in config.toml", desc)]),
+        Line::from(vec![Span::styled("              ", key), Span::styled("(default true; false = ASCII icons)", desc)]),
     ];
 
     let inner_height = area.height.saturating_sub(2);

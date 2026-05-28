@@ -87,12 +87,14 @@ Config file: `~/.config/gitish/config.toml`
 |--------|------|---------|-------------|
 | `theme` | string | `"Catppuccin Mocha"` | Name of the active color theme |
 | `transparent` | bool | `false` | Render with a transparent background for compositor transparency |
+| `use_nerd_fonts` | bool | `true` | Use Nerd Font glyphs for file/status icons; set `false` for plain ASCII icons |
 
 **Example `config.toml`:**
 
 ```toml
 theme = "Catppuccin Mocha"   # Mocha | Macchiato | Frappe | Latte
 transparent = false           # set true to pass background through to compositor
+use_nerd_fonts = true         # set false for ASCII icons (M, A, D, ?, +, ~) without a Nerd Font
 ```
 
 ### Custom themes

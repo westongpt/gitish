@@ -65,6 +65,13 @@ CONFIG:
         background color.
         Example: transparent = true
         Default: false
+
+    use_nerd_fonts = <bool>
+        When true (default), file/status icons use Nerd Font glyphs. Set to false to
+        fall back to plain ASCII markers (M, A, D, ?, +, ~) if your terminal font has
+        no Nerd Font glyphs (avoids tofu / replacement boxes).
+        Example: use_nerd_fonts = false
+        Default: true
 ";
 
 pub fn parse_args() -> Result<Option<Args>, AppError> {

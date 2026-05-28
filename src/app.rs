@@ -92,6 +92,8 @@ pub struct App {
     pub themes: ThemeList,
     pub theme_picker_cursor: usize,
     pub transparent: bool,
+    /// Render file/status icons with Nerd Font glyphs; false falls back to ASCII.
+    pub use_nerd_fonts: bool,
     /// Set by refresh() to force terminal.clear() before the next draw,
     /// preventing stale cells when content shrinks (e.g. after a commit).
     pub needs_clear: bool,
@@ -143,6 +145,7 @@ impl App {
             theme_picker_cursor: themes.current_idx(),
             themes,
             transparent: prefs.transparent,
+            use_nerd_fonts: prefs.use_nerd_fonts,
             needs_clear: false,
             help_scroll: 0,
             help_max_scroll: u16::MAX,
@@ -469,7 +472,11 @@ impl App {
         self.themes.set_current_idx(self.theme_picker_cursor);
         self.mode = Mode::Normal;
         let name = self.themes.current().name.clone();
-        let prefs = Preferences { theme: Some(name.clone()), transparent: self.transparent };
+        let prefs = Preferences {
+            theme: Some(name.clone()),
+            transparent: self.transparent,
+            use_nerd_fonts: self.use_nerd_fonts,
+        };
         prefs.save(&self.config_dir)?;
         self.status_msg = Some(format!("Theme: {name}"));
         // All colors changed; force full repaint so ratatui's diff doesn't miss any cells.
@@ -494,7 +501,11 @@ impl App {
     pub fn toggle_transparent(&mut self) -> Result<(), AppError> {
         self.transparent = !self.transparent;
         let name = self.themes.current().name.clone();
-        let prefs = Preferences { theme: Some(name), transparent: self.transparent };
+        let prefs = Preferences {
+            theme: Some(name),
+            transparent: self.transparent,
+            use_nerd_fonts: self.use_nerd_fonts,
+        };
         prefs.save(&self.config_dir)?;
         // Background colors changed globally; force full repaint.
         self.needs_clear = true;
