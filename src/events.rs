@@ -90,6 +90,11 @@ fn translate_key(key: KeyEvent) -> Option<AppEvent> {
         KeyCode::Enter => Some(AppEvent::Confirm),
         KeyCode::Esc => Some(AppEvent::Cancel),
         KeyCode::Backspace => Some(AppEvent::Backspace),
+        // Intentional fallthrough: unbound printable keys become `Char` even
+        // outside text input so contextual handlers can interpret bare letters.
+        // `Mode::Confirming` relies on this to honour the documented y/Y/N
+        // confirm/cancel shortcuts; returning `None` here would silently break
+        // them. Truly unhandled keys are dropped by each handler's `_ => {}`.
         KeyCode::Char(ch) => Some(AppEvent::Char(ch)),
         _ => None,
     }
@@ -211,6 +216,16 @@ mod tests {
     #[test]
     fn translate_key_unknown_is_none() {
         assert_eq!(translate_key(key(KeyCode::F(1))), None);
+    }
+
+    // Unbound printable keys fall through to `Char` in non-text modes so that
+    // `Mode::Confirming` can read y/Y/N as confirm/cancel. This locks that
+    // contract: switching the fallthrough to `None` would break it.
+    #[test]
+    fn translate_key_confirm_shortcuts_fall_through_to_char() {
+        assert_eq!(translate_key(key(KeyCode::Char('y'))), Some(AppEvent::Char('y')));
+        assert_eq!(translate_key(key(KeyCode::Char('Y'))), Some(AppEvent::Char('Y')));
+        assert_eq!(translate_key(key(KeyCode::Char('N'))), Some(AppEvent::Char('N')));
     }
 
     // ── resize event ──────────────────────────────────────────────────────
