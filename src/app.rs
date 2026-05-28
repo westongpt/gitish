@@ -511,6 +511,10 @@ impl App {
         self.staged_hunks = staged;
         self.unstaged_hunks = unstaged;
         self.conflict_blocks = load_conflicts_for(&self.repo, file);
+        // Diff panel content just changed; signal the run loop to clear the
+        // terminal buffer so ratatui's diff doesn't leave stale cells from
+        // a previously longer hunk list.
+        self.needs_clear = true;
     }
 
     fn refresh(&mut self) -> Result<(), AppError> {
@@ -941,6 +945,17 @@ mod tests {
         // Simulate the run loop consuming the flag
         app.needs_clear = false;
         assert!(!app.needs_clear);
+    }
+
+    #[test]
+    fn needs_clear_true_after_reload_hunks() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.needs_clear = false;
+        app.reload_hunks();
+        assert!(
+            app.needs_clear,
+            "reload_hunks() must set needs_clear so switching files repaints the diff panel"
+        );
     }
 
     #[test]
