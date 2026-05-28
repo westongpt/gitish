@@ -84,6 +84,7 @@ src/
 - We require 80% code coverage, Strive for 100%. We leave that 20% because we don't want to add tests for low value areas such as asserting static values.
 - Keep README.md and help command updated. When adding new features, update the README.md and the help command.
 - When making a PR, if a screenshot exists for a closed ticket in the /docs/screenshots folder, remove it. We want to keep the repo side managable.
+- **UI redraws**: Always set `app.needs_clear = true` (which triggers `terminal.clear()` before the next draw) when: (1) a floating overlay (Help, ThemePicker, Confirming, Loading) opens or closes; (2) the terminal is resized (`Event::Resize`); (3) global visual properties change (theme, transparency). The run loop in `app.rs` handles (1) and (2) centrally via `is_overlay_mode()`; individual operations that change global appearance must set `needs_clear` themselves.
 
 <!-- ============================================================
      FEATURE LIST — paste your wishlist below this line

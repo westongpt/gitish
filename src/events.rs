@@ -34,6 +34,8 @@ pub enum AppEvent {
     Confirm,
     Cancel,
     Quit,
+    // terminal
+    Resize,
 }
 
 /// When `text_input` is true, all printable characters are passed through as
@@ -51,6 +53,7 @@ pub fn next_event(text_input: bool) -> Result<Option<AppEvent>, AppError> {
                 translate_key(k)
             }
         }
+        Event::Resize(_, _) => Some(AppEvent::Resize),
         _ => None,
     };
     Ok(ev)
@@ -208,6 +211,15 @@ mod tests {
     #[test]
     fn translate_key_unknown_is_none() {
         assert_eq!(translate_key(key(KeyCode::F(1))), None);
+    }
+
+    // ── resize event ──────────────────────────────────────────────────────
+
+    #[test]
+    fn resize_event_variant_is_resize() {
+        // Verify the Resize variant exists and compares as expected.
+        assert_eq!(AppEvent::Resize, AppEvent::Resize);
+        assert_ne!(AppEvent::Resize, AppEvent::Quit);
     }
 
     #[test]

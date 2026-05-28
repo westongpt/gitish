@@ -472,6 +472,8 @@ impl App {
         let prefs = Preferences { theme: Some(name.clone()), transparent: self.transparent };
         prefs.save(&self.config_dir)?;
         self.status_msg = Some(format!("Theme: {name}"));
+        // All colors changed; force full repaint so ratatui's diff doesn't miss any cells.
+        self.needs_clear = true;
         Ok(())
     }
 
@@ -494,6 +496,8 @@ impl App {
         let name = self.themes.current().name.clone();
         let prefs = Preferences { theme: Some(name), transparent: self.transparent };
         prefs.save(&self.config_dir)?;
+        // Background colors changed globally; force full repaint.
+        self.needs_clear = true;
         Ok(())
     }
 
@@ -607,7 +611,16 @@ impl App {
                 continue;
             };
 
+            // Terminal resize: force a full repaint so ratatui's double-buffer
+            // stays in sync with the actual terminal dimensions.
+            if matches!(event, AppEvent::Resize) {
+                self.needs_clear = true;
+                continue;
+            }
+
             self.status_msg = None;
+
+            let prev_is_overlay = is_overlay_mode(&self.mode);
 
             let confirming_action = if let Mode::Confirming(a) = &self.mode {
                 Some(a.clone())
@@ -630,6 +643,13 @@ impl App {
                     }
                 }
                 Mode::Quitting => break,
+            }
+
+            // When an overlay appears or disappears, the area it occupied needs a
+            // full repaint — ratatui's diff can miss cells when transparent
+            // backgrounds make previous and current content look identical.
+            if is_overlay_mode(&self.mode) != prev_is_overlay {
+                self.needs_clear = true;
             }
 
             if self.mode == Mode::Quitting {
@@ -772,6 +792,16 @@ impl App {
         }
         Ok(())
     }
+}
+
+/// Returns true when `mode` renders a floating overlay (Help, ThemePicker,
+/// Confirming, Loading). Used by the run loop to detect transitions that
+/// require a full terminal repaint.
+pub fn is_overlay_mode(mode: &Mode) -> bool {
+    matches!(
+        mode,
+        Mode::Help | Mode::ThemePicker | Mode::Confirming(_) | Mode::Loading(_)
+    )
 }
 
 fn load_hunks_for(repo: &Repository, file: Option<&ChangedFile>) -> (Vec<Hunk>, Vec<Hunk>) {
@@ -1634,5 +1664,79 @@ mod tests {
     #[test]
     fn loading_op_demo_label_is_non_empty() {
         assert!(!LoadingOp::Demo.label().is_empty());
+    }
+
+    // ── is_overlay_mode ───────────────────────────────────────────────────
+
+    #[test]
+    fn is_overlay_mode_false_for_normal() {
+        assert!(!is_overlay_mode(&Mode::Normal));
+    }
+
+    #[test]
+    fn is_overlay_mode_false_for_commit_title() {
+        assert!(!is_overlay_mode(&Mode::CommitTitle));
+    }
+
+    #[test]
+    fn is_overlay_mode_false_for_commit_body() {
+        assert!(!is_overlay_mode(&Mode::CommitBody));
+    }
+
+    #[test]
+    fn is_overlay_mode_true_for_help() {
+        assert!(is_overlay_mode(&Mode::Help));
+    }
+
+    #[test]
+    fn is_overlay_mode_true_for_theme_picker() {
+        assert!(is_overlay_mode(&Mode::ThemePicker));
+    }
+
+    #[test]
+    fn is_overlay_mode_true_for_confirming() {
+        let action = PendingAction::DeleteUntracked("x".into());
+        assert!(is_overlay_mode(&Mode::Confirming(action)));
+    }
+
+    #[test]
+    fn is_overlay_mode_true_for_loading() {
+        assert!(is_overlay_mode(&Mode::Loading(LoadingOp::Push)));
+    }
+
+    // ── needs_clear set on overlay-affecting operations ───────────────────
+
+    #[test]
+    fn apply_theme_sets_needs_clear() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.needs_clear = false;
+        app.apply_theme().unwrap();
+        assert!(app.needs_clear, "apply_theme must set needs_clear so all cells repaint with new colors");
+    }
+
+    #[test]
+    fn apply_theme_closes_theme_picker() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.mode = Mode::ThemePicker;
+        app.apply_theme().unwrap();
+        assert_eq!(app.mode, Mode::Normal);
+    }
+
+    #[test]
+    fn toggle_transparent_sets_needs_clear() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.needs_clear = false;
+        app.toggle_transparent().unwrap();
+        assert!(app.needs_clear, "toggle_transparent must set needs_clear so background color change repaints all cells");
+    }
+
+    #[test]
+    fn toggle_transparent_sets_needs_clear_when_turning_off() {
+        let (_repo, _cfg, mut app) = make_test_app();
+        app.transparent = true;
+        app.needs_clear = false;
+        app.toggle_transparent().unwrap();
+        assert!(!app.transparent);
+        assert!(app.needs_clear, "toggling transparent off must also set needs_clear");
     }
 }
