@@ -125,7 +125,10 @@ impl App {
         }
 
         let files = list_changed_files(&repo)?;
-        let (staged_hunks, unstaged_hunks) = load_hunks_for(&repo, files.first());
+        let (staged_hunks, unstaged_hunks, load_err) = match load_hunks_for(&repo, files.first()) {
+            Ok((staged, unstaged)) => (staged, unstaged, None),
+            Err(e) => (vec![], vec![], Some(format!("Failed to load diff: {e}"))),
+        };
         let conflict_blocks = load_conflicts_for(&repo, files.first());
 
         Ok(Self {
@@ -141,7 +144,7 @@ impl App {
             mode: Mode::Normal,
             commit_title: String::new(),
             commit_body: String::new(),
-            status_msg: config_err,
+            status_msg: config_err.or(load_err),
             theme_picker_cursor: themes.current_idx(),
             themes,
             transparent: prefs.transparent,
@@ -518,9 +521,17 @@ impl App {
         self.hunk_cursor = 0;
         self.conflict_cursor = 0;
         let file = self.files.get(self.file_cursor);
-        let (staged, unstaged) = load_hunks_for(&self.repo, file);
-        self.staged_hunks = staged;
-        self.unstaged_hunks = unstaged;
+        match load_hunks_for(&self.repo, file) {
+            Ok((staged, unstaged)) => {
+                self.staged_hunks = staged;
+                self.unstaged_hunks = unstaged;
+            }
+            Err(e) => {
+                self.staged_hunks = vec![];
+                self.unstaged_hunks = vec![];
+                self.status_msg = Some(format!("Failed to load diff: {e}"));
+            }
+        }
         self.conflict_blocks = load_conflicts_for(&self.repo, file);
         // Diff panel content just changed; signal the run loop to clear the
         // terminal buffer so ratatui's diff doesn't leave stale cells from
@@ -746,7 +757,10 @@ impl App {
             AppEvent::OpenThemePicker => self.open_theme_picker(),
             AppEvent::Refresh => {
                 self.refresh()?;
-                self.status_msg = Some("Refreshed".into());
+                // refresh() may set a diff-load error; don't overwrite it.
+                if self.status_msg.is_none() {
+                    self.status_msg = Some("Refreshed".into());
+                }
             }
             _ => {}
         }
@@ -819,16 +833,23 @@ pub fn is_overlay_mode(mode: &Mode) -> bool {
     )
 }
 
-fn load_hunks_for(repo: &Repository, file: Option<&ChangedFile>) -> (Vec<Hunk>, Vec<Hunk>) {
+// Returns `Ok` with empty hunks for the benign "nothing to show" cases (no
+// file selected, or a conflicted file whose hunks are loaded separately). A
+// genuine libgit2 failure propagates as `Err` so callers can surface it
+// instead of silently rendering an empty diff that looks like "no changes".
+fn load_hunks_for(
+    repo: &Repository,
+    file: Option<&ChangedFile>,
+) -> Result<(Vec<Hunk>, Vec<Hunk>), AppError> {
     let Some(f) = file else {
-        return (vec![], vec![]);
+        return Ok((vec![], vec![]));
     };
     if f.status == FileStatus::Conflicted {
-        return (vec![], vec![]);
+        return Ok((vec![], vec![]));
     }
-    let staged = staged_diff_for_file(repo, &f.path).unwrap_or_default();
-    let unstaged = diff_for_file(repo, &f.path).unwrap_or_default();
-    (staged, unstaged)
+    let staged = staged_diff_for_file(repo, &f.path)?;
+    let unstaged = diff_for_file(repo, &f.path)?;
+    Ok((staged, unstaged))
 }
 
 fn load_conflicts_for(repo: &Repository, file: Option<&ChangedFile>) -> Vec<ConflictBlock> {
@@ -967,6 +988,58 @@ mod tests {
             app.needs_clear,
             "reload_hunks() must set needs_clear so switching files repaints the diff panel"
         );
+    }
+
+    fn modified_file(path: &str) -> ChangedFile {
+        ChangedFile { path: path.into(), status: FileStatus::Modified, staged: false, unstaged: true }
+    }
+
+    #[test]
+    fn load_hunks_for_none_file_is_ok_empty() {
+        let (_repo_dir, _cfg, app) = make_test_app();
+        let (staged, unstaged) = load_hunks_for(&app.repo, None).unwrap();
+        assert!(staged.is_empty() && unstaged.is_empty(), "no selected file is a benign empty case, not an error");
+    }
+
+    #[test]
+    fn load_hunks_for_conflicted_file_is_ok_empty() {
+        let (_repo_dir, _cfg, app) = make_test_app();
+        let conflicted = ChangedFile {
+            path: "c.txt".into(),
+            status: FileStatus::Conflicted,
+            staged: false,
+            unstaged: true,
+        };
+        let (staged, unstaged) = load_hunks_for(&app.repo, Some(&conflicted)).unwrap();
+        assert!(
+            staged.is_empty() && unstaged.is_empty(),
+            "conflicted files load hunks separately and must not be treated as a diff error"
+        );
+    }
+
+    #[test]
+    fn load_hunks_for_propagates_diff_error() {
+        // A bare repo has no working directory, so diff_index_to_workdir fails.
+        // The error must propagate instead of being swallowed into empty hunks.
+        let dir = tempfile::TempDir::new().unwrap();
+        let repo = git2::Repository::init_bare(dir.path()).unwrap();
+        let file = modified_file("anything.txt");
+        let result = load_hunks_for(&repo, Some(&file));
+        assert!(result.is_err(), "a genuine libgit2 diff failure must propagate as Err");
+    }
+
+    #[test]
+    fn reload_hunks_surfaces_diff_error_in_status_msg() {
+        let (_repo_dir, dir, mut app) = make_test_app();
+        // Point the app at a bare repo so the diff load fails deterministically.
+        app.repo = git2::Repository::init_bare(dir.path().join("bare")).unwrap();
+        app.files = vec![modified_file("x.txt")];
+        app.file_cursor = 0;
+        app.status_msg = None;
+        app.reload_hunks();
+        let msg = app.status_msg.expect("a failed diff load must surface a status message");
+        assert!(msg.contains("Failed to load diff"), "status message must name the failure, got: {msg:?}");
+        assert!(app.staged_hunks.is_empty() && app.unstaged_hunks.is_empty());
     }
 
     #[test]
